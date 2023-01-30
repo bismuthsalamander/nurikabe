@@ -33,16 +33,25 @@ type Island struct {
 	CurrentSize  int
 	TargetSize   int //an island with TargetSize=0 is one not joined to a numbered cell
 	BordersAdded bool
+	IslandType   int
 }
 
+const CLEAR_ISLAND = 0
+const WALL_ISLAND = 1
+
 func MakeIsland(r int, c int, sz int) Island {
-	return Island{[]Coordinate{{r, c}}, 1, sz, false}
+	return Island{[]Coordinate{{r, c}}, 1, sz, false, CLEAR_ISLAND}
+}
+
+func MakeWallIsland(r int, c int) Island {
+	return Island{[]Coordinate{{r, c}}, 1, 0, false, WALL_ISLAND}
 }
 
 type ProblemDef struct {
-	Width       int
-	Height      int
-	IslandSpecs []IslandSpec
+	Width           int
+	Height          int
+	IslandSpecs     []IslandSpec
+	TargetWallCount int
 }
 
 func (p ProblemDef) String() string {
@@ -57,9 +66,10 @@ func (p ProblemDef) String() string {
 }
 
 type Board struct {
-	Problem ProblemDef
-	Grid    [][]Cell
-	Islands []Island
+	Problem     ProblemDef
+	Grid        [][]Cell
+	Islands     []Island
+	WallIslands []Island
 }
 
 func NewGrid(w int, h int) [][]Cell {
@@ -71,7 +81,7 @@ func NewGrid(w int, h int) [][]Cell {
 }
 
 func BoardFromDef(def ProblemDef) Board {
-	b := Board{def, NewGrid(def.Width, def.Height), make([]Island, 0)}
+	b := Board{def, NewGrid(def.Width, def.Height), make([]Island, 0), make([]Island, 0)}
 	for _, spec := range b.Problem.IslandSpecs {
 		b.Grid[spec.Row][spec.Col] = CLEAR
 		b.Islands = append(b.Islands, MakeIsland(spec.Row, spec.Col, spec.Size))
@@ -113,7 +123,7 @@ func (i Island) BordersIsland(other Island) bool {
 
 func (i *Island) Absorb(other Island) {
 	i.CurrentSize += other.CurrentSize
-	//TODO: If both have nonzero target sizes, then we've reached an incorrect state....think about how to detect that later when we use reductio/guess techniques
+	//TODO: If both are clear islands and have nonzero target sizes, then we've reached an incorrect state....think about how to detect that later when we use reductio/guess techniques
 	//Options: (1) always detect BEFOREHAND and prevent the cell from being marked incorrectly
 	//(2) Bubble up errors
 	//(3) Add this condition to the consistency/could-be-correct-ness/error-freeness check (i.e., number of islands with TargetSize > 0 == len(b.Problem.IslandSpecs))
@@ -121,6 +131,11 @@ func (i *Island) Absorb(other Island) {
 		i.TargetSize = other.TargetSize
 	}
 	i.Members = append(i.Members, other.Members...)
+}
+
+func (b *Board) MergeAll() {
+	b.MergeIslands()
+	b.MergeWallIslands()
 }
 
 func (b *Board) MergeIslands() {
@@ -142,7 +157,29 @@ func (b *Board) MergeIslands() {
 	}
 }
 
+func (b *Board) MergeWallIslands() {
+	changed := true
+	for changed {
+		changed = false
+		newWallIslands := make([]Island, 0)
+		for i := 0; i < len(b.WallIslands); i++ {
+			for j := i + 1; j < len(b.WallIslands); j++ {
+				if b.WallIslands[i].BordersIsland(b.WallIslands[j]) {
+					changed = true
+					b.WallIslands[i].Absorb(b.WallIslands[j])
+					b.WallIslands = append(b.WallIslands[:j], b.WallIslands[j+1:]...)
+				}
+			}
+			newWallIslands = append(newWallIslands, b.WallIslands[i])
+		}
+		b.WallIslands = newWallIslands
+	}
+}
+
 func (b *Board) MarkClear(r int, c int) {
+	if b.Grid[r][c] == CLEAR {
+		return
+	}
 	b.Grid[r][c] = CLEAR
 	b.Islands = append(b.Islands, MakeIsland(r, c, 0))
 	b.MergeIslands()
@@ -150,7 +187,12 @@ func (b *Board) MarkClear(r int, c int) {
 
 // eventually this func will include tracking "wall islands" or WallGroups
 func (b *Board) MarkPainted(r int, c int) {
+	if b.Grid[r][c] == PAINTED {
+		return
+	}
 	b.Grid[r][c] = PAINTED
+	b.WallIslands = append(b.WallIslands, MakeWallIsland(r, c))
+	b.MergeWallIslands()
 }
 
 func (b Board) CharAt(r int, c int) string {
@@ -186,11 +228,20 @@ func (b Board) String() string {
 
 func (b Board) StringDebug() string {
 	s := b.String() + "\n"
-	for i, island := range b.Islands {
-		s += fmt.Sprintf("%v", island)
-		if i != len(b.Islands)-1 {
-			s += "\n"
+	if len(b.Islands) > 0 {
+		s += "Islands:\n"
+		for _, island := range b.Islands {
+			s += fmt.Sprintf("%v\n", island)
 		}
+	}
+	if len(b.WallIslands) > 0 {
+		s += "Wall islands:\n"
+		for _, island := range b.WallIslands {
+			s += fmt.Sprintf("%v\n", island)
+		}
+	}
+	if s[len(s)-1] == '\n' {
+		s = s[:len(s)-1]
 	}
 	return s
 }
@@ -237,6 +288,7 @@ func DefFromString(input string) ProblemDef {
 			count := parseIslandSpecChar(cell)
 			if count > -1 {
 				prob.IslandSpecs = append(prob.IslandSpecs, IslandSpec{ci, ri, count})
+				prob.TargetWallCount += count
 			}
 		}
 	}
@@ -297,7 +349,7 @@ func (b *Board) AddIslandBorders() {
 }
 
 // TODO: liberty data structure? running slices?
-func (b *Board) ClearOnlyLiberties() {
+func (b *Board) ExpandIslands() {
 	changed := true
 	for changed {
 		changed = false
@@ -308,6 +360,24 @@ func (b *Board) ClearOnlyLiberties() {
 			lib := b.Liberties(island)
 			if len(lib) == 1 {
 				b.MarkClear(lib[0].Row, lib[0].Col)
+				changed = true
+			}
+		}
+	}
+}
+
+// TODO: liberty data structure? running slices?
+func (b *Board) ExpandWallIslands() {
+	changed := true
+	for changed {
+		changed = false
+		for _, island := range b.WallIslands {
+			if island.CurrentSize == b.Problem.TargetWallCount {
+				continue
+			}
+			lib := b.Liberties(island)
+			if len(lib) == 1 {
+				b.MarkPainted(lib[0].Row, lib[0].Col)
 				changed = true
 			}
 		}
@@ -348,14 +418,19 @@ func TryParseFile(f string) {
 	prob := DefFromString(string(data))
 	fmt.Printf("problem:\n%s\n", prob)
 	board := BoardFromDef(prob)
-	fmt.Printf("board:\n%s\n", board.StringDebug())
+	fmt.Printf("Initial:\n%s\n", board.StringDebug())
 	board.PaintTwoBorderedCells()
-	fmt.Printf("board:\n%s\n", board.StringDebug())
+	fmt.Printf("After painting two-bordered:\n%s\n", board.StringDebug())
 	board.AddIslandBorders()
-	fmt.Printf("board:\n%s\n", board.StringDebug())
+	fmt.Printf("After adding borders:\n%s\n", board.StringDebug())
 	board.AddIslandBorders()
-	fmt.Printf("board:\n%s\n", board.StringDebug())
-	board.ClearOnlyLiberties()
+	fmt.Printf("After adding borders again:\n%s\n", board.StringDebug())
+	board.ExpandIslands()
+	board.ExpandWallIslands()
+	board.AddIslandBorders()
+	board.ExpandIslands()
+	board.ExpandWallIslands()
+	board.AddIslandBorders()
 	fmt.Printf("board:\n%s\n", board.StringDebug())
 }
 
@@ -364,4 +439,6 @@ func main() {
 	TryParseFile("problem1.txt")
 }
 
-//NEXT: add WallGroups and mimic Island logic; add wall liberty checking
+//NEXT: reachability by islands
+//NEXT: wall bottlenecks (exhaustive DFS to first wall using a channel; look for a coordinate set that was in EVERY path to the next wall island)
+//NEXT: same thing for numberless islands?
