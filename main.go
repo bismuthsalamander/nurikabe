@@ -121,6 +121,10 @@ func (i Island) BordersIsland(other Island) bool {
 	return false
 }
 
+func (i Island) Contains(c Coordinate) bool {
+	return contains(i.Members, c)
+}
+
 func (i *Island) Absorb(other Island) {
 	i.CurrentSize += other.CurrentSize
 	//TODO: If both are clear islands and have nonzero target sizes, then we've reached an incorrect state....think about how to detect that later when we use reductio/guess techniques
@@ -226,6 +230,10 @@ func (b Board) String() string {
 	return s
 }
 
+func (b Board) Get(c Coordinate) Cell {
+	return b.Grid[c.Row][c.Col]
+}
+
 func (b Board) StringDebug() string {
 	s := b.String() + "\n"
 	if len(b.Islands) > 0 {
@@ -293,6 +301,23 @@ func DefFromString(input string) ProblemDef {
 		}
 	}
 	return prob
+}
+
+func (b Board) CellNeighbors(c Coordinate) []Coordinate {
+	rset := make([]Coordinate, 0, 4)
+	if c.Row-1 >= 0 {
+		rset = append(rset, Coordinate{c.Row - 1, c.Col})
+	}
+	if c.Row+1 < b.Problem.Height {
+		rset = append(rset, Coordinate{c.Row + 1, c.Col})
+	}
+	if c.Col-1 >= 0 {
+		rset = append(rset, Coordinate{c.Row, c.Col - 1})
+	}
+	if c.Col+1 < b.Problem.Width {
+		rset = append(rset, Coordinate{c.Row, c.Col + 1})
+	}
+	return rset
 }
 
 func (b Board) Neighbors(i Island) []Coordinate {
@@ -409,6 +434,67 @@ func (b *Board) PaintTwoBorderedCells() {
 	}
 }
 
+func contains(haystack []Coordinate, needle Coordinate) bool {
+	for _, e := range haystack {
+		if e == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Board) WallDfsRec(c chan []Coordinate, pathToHere []Coordinate, island *Island) {
+	neighbors := b.CellNeighbors(pathToHere[len(pathToHere)-1])
+	for _, n := range neighbors {
+		if contains(pathToHere, n) || island.Contains(n) {
+			continue
+		}
+		pathToHere = append(pathToHere, n)
+		if b.Get(n) == PAINTED {
+			out := make([]Coordinate, len(pathToHere))
+			copy(out, pathToHere)
+			c <- out
+		} else if b.Get(n) == UNKNOWN {
+			b.WallDfsRec(c, pathToHere, island)
+		}
+		pathToHere = pathToHere[:len(pathToHere)-1]
+	}
+}
+
+func (b *Board) WallDfs(c chan []Coordinate, island *Island) {
+	p := make([]Coordinate, 0, 1)
+	for _, m := range island.Members {
+		p = append(p, m)
+		b.WallDfsRec(c, p, island)
+		p = p[:0]
+	}
+	close(c)
+}
+
+func (b *Board) ExtendWallIslands() {
+	for _, wi := range b.WallIslands {
+		if wi.CurrentSize == b.Problem.TargetWallCount {
+			continue
+		}
+		c := make(chan []Coordinate)
+		go b.WallDfs(c, &wi)
+		necessary := <-c
+		//trim off first and last, because origin and destination are already painted
+		necessary = necessary[1 : len(necessary)-1]
+		for path := range c {
+			for i := 0; i < len(necessary); i++ {
+				if !contains(path, necessary[i]) {
+					necessary = append(necessary[0:i], necessary[i+1:]...)
+					i--
+				}
+			}
+		}
+		for _, target := range necessary {
+			b.MarkPainted(target.Row, target.Col)
+		}
+	}
+}
+
 func TryParseFile(f string) {
 	data, err := os.ReadFile(f)
 	if err != nil {
@@ -432,6 +518,18 @@ func TryParseFile(f string) {
 	board.ExpandWallIslands()
 	board.AddIslandBorders()
 	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.ExtendWallIslands()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.ExtendWallIslands()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.ExpandIslands()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.ExtendWallIslands()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.ExpandIslands()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.AddIslandBorders()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
 }
 
 func main() {
@@ -440,5 +538,6 @@ func main() {
 }
 
 //NEXT: reachability by islands
-//NEXT: wall bottlenecks (exhaustive DFS to first wall using a channel; look for a coordinate set that was in EVERY path to the next wall island)
 //NEXT: same thing for numberless islands?
+//NEXT: all liberties of island one short of completion border the same unknown cell? e.g., the corner away from a cornered 2?
+//NEXT: fill elbows
