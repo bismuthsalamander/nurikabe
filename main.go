@@ -22,6 +22,77 @@ func (c Coordinate) String() string {
 	return fmt.Sprintf("(r%d, c%d)", c.Row, c.Col)
 }
 
+func (c Coordinate) Plus(dr int, dc int) Coordinate {
+	return Coordinate{c.Row + dr, c.Col + dc}
+}
+
+// TODO: make this a generic?
+type CoordinateSet struct {
+	Map map[Coordinate]bool
+}
+
+func EmptyCoordinateSet() *CoordinateSet {
+	return &CoordinateSet{make(map[Coordinate]bool)}
+}
+
+func ToCoordinateSet(members []Coordinate) *CoordinateSet {
+	cs := CoordinateSet{make(map[Coordinate]bool)}
+	for _, c := range members {
+		cs.Add(c)
+	}
+	return &cs
+}
+
+func (s *CoordinateSet) Size() int {
+	return len(s.Map)
+}
+
+func (s *CoordinateSet) Add(c Coordinate) {
+	s.Map[c] = true
+}
+
+func (s *CoordinateSet) Del(c Coordinate) {
+	delete(s.Map, c)
+}
+
+func (s CoordinateSet) Plus(other *CoordinateSet) *CoordinateSet {
+	for v := range other.Map {
+		s.Add(v)
+	}
+	return &s
+}
+
+func (s *CoordinateSet) Contains(c Coordinate) bool {
+	if val, ok := s.Map[c]; val && ok {
+		return true
+	}
+	return false
+}
+
+func (s *CoordinateSet) ToSlice() []Coordinate {
+	out := make([]Coordinate, 0, len(s.Map))
+	for k := range s.Map {
+		out = append(out, k)
+	}
+	return out
+}
+
+func (s *CoordinateSet) Copy() *CoordinateSet {
+	cs := CoordinateSet{make(map[Coordinate]bool)}
+	for k := range s.Map {
+		cs.Add(k)
+	}
+	return &cs
+}
+
+func (s *CoordinateSet) String() string {
+	out := ""
+	for m := range s.Map {
+		out += fmt.Sprintf("(r%d, c%d) ", m.Row, m.Col)
+	}
+	return out
+}
+
 type IslandSpec struct {
 	Col  int
 	Row  int
@@ -29,22 +100,26 @@ type IslandSpec struct {
 }
 
 type Island struct {
-	Members      []Coordinate
+	Members      *CoordinateSet
 	CurrentSize  int
 	TargetSize   int //an island with TargetSize=0 is one not joined to a numbered cell
 	BordersAdded bool
 	IslandType   int
 }
 
+func (i *Island) Contains(c Coordinate) bool {
+	return i.Members.Contains(c)
+}
+
 const CLEAR_ISLAND = 0
 const WALL_ISLAND = 1
 
 func MakeIsland(r int, c int, sz int) Island {
-	return Island{[]Coordinate{{r, c}}, 1, sz, false, CLEAR_ISLAND}
+	return Island{ToCoordinateSet([]Coordinate{{r, c}}), 1, sz, false, CLEAR_ISLAND}
 }
 
 func MakeWallIsland(r int, c int) Island {
-	return Island{[]Coordinate{{r, c}}, 1, 0, false, WALL_ISLAND}
+	return Island{ToCoordinateSet([]Coordinate{{r, c}}), 1, 0, false, WALL_ISLAND}
 }
 
 type ProblemDef struct {
@@ -102,7 +177,7 @@ func AreAdjacent(r1 int, c1 int, r2 int, c2 int) bool {
 }
 
 func (i Island) BordersCell(r int, c int) bool {
-	for _, m := range i.Members {
+	for m := range i.Members.Map {
 		if AreAdjacent(m.Row, m.Col, r, c) {
 			return true
 		}
@@ -111,18 +186,14 @@ func (i Island) BordersCell(r int, c int) bool {
 }
 
 func (i Island) BordersIsland(other Island) bool {
-	for _, m1 := range i.Members {
-		for _, m2 := range other.Members {
+	for m1 := range i.Members.Map {
+		for m2 := range other.Members.Map {
 			if AreAdjacent(m1.Row, m1.Col, m2.Row, m2.Col) {
 				return true
 			}
 		}
 	}
 	return false
-}
-
-func (i Island) Contains(c Coordinate) bool {
-	return contains(i.Members, c)
 }
 
 func (i *Island) Absorb(other Island) {
@@ -134,7 +205,8 @@ func (i *Island) Absorb(other Island) {
 	if i.TargetSize == 0 {
 		i.TargetSize = other.TargetSize
 	}
-	i.Members = append(i.Members, other.Members...)
+	cs := i.Members.Plus(other.Members)
+	i.Members = cs
 }
 
 func (b *Board) MergeAll() {
@@ -303,59 +375,71 @@ func DefFromString(input string) ProblemDef {
 	return prob
 }
 
-func (b Board) CellNeighbors(c Coordinate) []Coordinate {
-	rset := make([]Coordinate, 0, 4)
+func (b Board) CellNeighbors(c Coordinate) *CoordinateSet {
+	rset := EmptyCoordinateSet()
 	if c.Row-1 >= 0 {
-		rset = append(rset, Coordinate{c.Row - 1, c.Col})
+		rset.Add(c.Plus(-1, 0))
 	}
 	if c.Row+1 < b.Problem.Height {
-		rset = append(rset, Coordinate{c.Row + 1, c.Col})
+		rset.Add(c.Plus(1, 0))
 	}
 	if c.Col-1 >= 0 {
-		rset = append(rset, Coordinate{c.Row, c.Col - 1})
+		rset.Add(c.Plus(0, -1))
 	}
 	if c.Col+1 < b.Problem.Width {
-		rset = append(rset, Coordinate{c.Row, c.Col + 1})
+		rset.Add(c.Plus(0, 1))
 	}
 	return rset
 }
 
-func (b Board) Neighbors(i Island) []Coordinate {
-	rset := make(map[Coordinate]bool)
-	for _, m := range i.Members {
+func (b *Board) Neighbors(c *CoordinateSet) *CoordinateSet {
+	rset := EmptyCoordinateSet()
+	for m := range c.Map {
 		if m.Row-1 >= 0 {
-			rset[Coordinate{m.Row - 1, m.Col}] = true
+			rset.Add(m.Plus(-1, 0))
 		}
 		if m.Row+1 < b.Problem.Height {
-			rset[Coordinate{m.Row + 1, m.Col}] = true
+			rset.Add(m.Plus(1, 0))
 		}
 		if m.Col-1 >= 0 {
-			rset[Coordinate{m.Row, m.Col - 1}] = true
+			rset.Add(m.Plus(0, -1))
 		}
 		if m.Col+1 < b.Problem.Width {
-			rset[Coordinate{m.Row, m.Col + 1}] = true
+			rset.Add(m.Plus(0, 1))
 		}
 	}
-	for _, m := range i.Members {
-		delete(rset, Coordinate{m.Row, m.Col})
+	return rset
+}
+
+func (b *Board) NeighborsWith(c *CoordinateSet, val Cell) *CoordinateSet {
+	rset := EmptyCoordinateSet()
+	for m := range c.Map {
+		if m.Row-1 >= 0 && b.Grid[m.Row-1][m.Col] == val {
+			rset.Add(m.Plus(-1, 0))
+		}
+		if m.Row+1 < b.Problem.Height && b.Grid[m.Row+1][m.Col] == val {
+			rset.Add(m.Plus(1, 0))
+		}
+		if m.Col-1 >= 0 && b.Grid[m.Row][m.Col-1] == val {
+			rset.Add(m.Plus(0, -1))
+		}
+		if m.Col+1 < b.Problem.Width && b.Grid[m.Row][m.Col+1] == val {
+			rset.Add(m.Plus(0, 1))
+		}
 	}
-	res := make([]Coordinate, len(rset))
-	idx := 0
-	for k := range rset {
-		res[idx] = k
-		idx++
+	for m := range c.Map {
+		rset.Del(m)
 	}
-	return res
+	return rset
 }
 
 // TODO: it's probably more efficient to copy and paste Neighbors() and add the
 // emptiness checks inline.
-func (b Board) Liberties(i Island) []Coordinate {
-	n := b.Neighbors(i)
-	for idx := 0; idx < len(n); idx++ {
-		if b.Grid[n[idx].Row][n[idx].Col] != UNKNOWN {
-			n = append(n[:idx], n[idx+1:]...)
-			idx--
+func (b Board) Liberties(i Island) *CoordinateSet {
+	n := b.Neighbors(i.Members)
+	for m := range n.Map {
+		if b.Get(m) != UNKNOWN {
+			n.Del(m)
 		}
 	}
 	return n
@@ -364,8 +448,9 @@ func (b Board) Liberties(i Island) []Coordinate {
 func (b *Board) AddIslandBorders() {
 	for _, island := range b.Islands {
 		if !island.BordersAdded && island.CurrentSize == island.TargetSize {
-			targets := b.Neighbors(island)
-			for _, coord := range targets {
+			targets := b.NeighborsWith(island.Members, UNKNOWN)
+			//fmt.Printf("Neighbors of %s\n%s\n", island.Members, targets)
+			for coord := range targets.Map {
 				b.MarkPainted(coord.Row, coord.Col)
 			}
 			island.BordersAdded = true
@@ -374,7 +459,7 @@ func (b *Board) AddIslandBorders() {
 }
 
 // TODO: liberty data structure? running slices?
-func (b *Board) ExpandIslands() {
+func (b *Board) ExpandIslandsOneLiberty() {
 	changed := true
 	for changed {
 		changed = false
@@ -383,9 +468,12 @@ func (b *Board) ExpandIslands() {
 				continue
 			}
 			lib := b.Liberties(island)
-			if len(lib) == 1 {
-				b.MarkClear(lib[0].Row, lib[0].Col)
-				changed = true
+			// One of the only ugly parts of using CoordinateSet for everything
+			if lib.Size() == 1 {
+				for c := range lib.Map {
+					b.MarkClear(c.Row, c.Col)
+					changed = true
+				}
 			}
 		}
 	}
@@ -401,9 +489,11 @@ func (b *Board) ExpandWallIslands() {
 				continue
 			}
 			lib := b.Liberties(island)
-			if len(lib) == 1 {
-				b.MarkPainted(lib[0].Row, lib[0].Col)
-				changed = true
+			if lib.Size() == 1 {
+				for c := range lib.Map {
+					b.MarkPainted(c.Row, c.Col)
+					changed = true
+				}
 			}
 		}
 	}
@@ -445,7 +535,7 @@ func contains(haystack []Coordinate, needle Coordinate) bool {
 
 func (b *Board) WallDfsRec(c chan []Coordinate, pathToHere []Coordinate, island *Island) {
 	neighbors := b.CellNeighbors(pathToHere[len(pathToHere)-1])
-	for _, n := range neighbors {
+	for n := range neighbors.Map {
 		if contains(pathToHere, n) || island.Contains(n) {
 			continue
 		}
@@ -463,7 +553,7 @@ func (b *Board) WallDfsRec(c chan []Coordinate, pathToHere []Coordinate, island 
 
 func (b *Board) WallDfs(c chan []Coordinate, island *Island) {
 	p := make([]Coordinate, 0, 1)
-	for _, m := range island.Members {
+	for m := range island.Members.Map {
 		p = append(p, m)
 		b.WallDfsRec(c, p, island)
 		p = p[:0]
@@ -495,6 +585,78 @@ func (b *Board) ExtendWallIslands() {
 	}
 }
 
+func (b *Board) IslandDfsRec(c chan *CoordinateSet, members *CoordinateSet, targetSize int) {
+	potentialNew := b.NeighborsWith(members, UNKNOWN)
+	for p := range potentialNew.Map {
+		members.Add(p)
+		members = members.Plus(b.NeighborsWith(members, CLEAR))
+		if members.Size() == targetSize {
+			c <- members.Copy()
+		} else {
+			b.IslandDfsRec(c, members, targetSize)
+		}
+		members.Del(p)
+	}
+}
+
+func (b *Board) IslandDfs(c chan *CoordinateSet, island *Island) {
+	if island.CurrentSize == island.TargetSize {
+		close(c)
+		return
+	}
+	hypoMembers := EmptyCoordinateSet().Plus(island.Members)
+	b.IslandDfsRec(c, hypoMembers, island.TargetSize)
+	close(c)
+}
+
+func (b *Board) ExtendIslands() {
+	for _, i := range b.Islands {
+		if i.CurrentSize == i.TargetSize {
+			continue
+		}
+		c := make(chan *CoordinateSet)
+		go b.IslandDfs(c, &i)
+		necessary := <-c
+		for members := range c {
+			for cell := range necessary.Map {
+				if !members.Contains(cell) {
+					necessary.Del(cell)
+				}
+			}
+		}
+		for target := range necessary.Map {
+			b.MarkClear(target.Row, target.Col)
+		}
+	}
+}
+
+func (b *Board) FillElbows() {
+	//TODO: make more efficient with overlapping columns that we save between inner loop iterations?
+	for r := 0; r < b.Problem.Height-1; r++ {
+		for c := 0; c < b.Problem.Width-1; c++ {
+			painted := 0
+			clear := 0
+			unknown := 0
+			target := Coordinate{}
+			for dr := 0; dr < 2; dr++ {
+				for dc := 0; dc < 2; dc++ {
+					switch b.Grid[r+dr][c+dc] {
+					case PAINTED:
+						painted++
+					case CLEAR:
+						clear++
+					case UNKNOWN:
+						unknown++
+						target = Coordinate{r + dr, c + dc}
+					}
+				}
+			}
+			if painted == 3 && clear != 1 {
+				b.MarkClear(target.Row, target.Col)
+			}
+		}
+	}
+}
 func TryParseFile(f string) {
 	data, err := os.ReadFile(f)
 	if err != nil {
@@ -511,22 +673,41 @@ func TryParseFile(f string) {
 	fmt.Printf("After adding borders:\n%s\n", board.StringDebug())
 	board.AddIslandBorders()
 	fmt.Printf("After adding borders again:\n%s\n", board.StringDebug())
-	board.ExpandIslands()
+	board.ExpandIslandsOneLiberty()
+	fmt.Printf("After expanding islands one liberty:\n%s\n", board.StringDebug())
 	board.ExpandWallIslands()
+	fmt.Printf("After expanding wall islands:\n%s\n", board.StringDebug())
 	board.AddIslandBorders()
-	board.ExpandIslands()
+	fmt.Printf("After adding more borders:\n%s\n", board.StringDebug())
+	board.ExpandIslandsOneLiberty()
+	fmt.Printf("After expanding wall isalnds on eliberty:\n%s\n", board.StringDebug())
 	board.ExpandWallIslands()
+	fmt.Printf("After expanding wall islands:\n%s\n", board.StringDebug())
+	board.AddIslandBorders()
+	fmt.Printf("after borders board:\n%s\n", board.StringDebug())
+	board.ExtendWallIslands()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.ExtendWallIslands()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.ExpandIslandsOneLiberty()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.ExtendWallIslands()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.ExpandIslandsOneLiberty()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
 	board.AddIslandBorders()
 	fmt.Printf("board:\n%s\n", board.StringDebug())
-	board.ExtendWallIslands()
+	board.ExtendIslands()
 	fmt.Printf("board:\n%s\n", board.StringDebug())
-	board.ExtendWallIslands()
+	board.MarkPainted(7, 2)
 	fmt.Printf("board:\n%s\n", board.StringDebug())
-	board.ExpandIslands()
+	board.FillElbows()
 	fmt.Printf("board:\n%s\n", board.StringDebug())
-	board.ExtendWallIslands()
+	board.AddIslandBorders()
 	fmt.Printf("board:\n%s\n", board.StringDebug())
-	board.ExpandIslands()
+	board.FillElbows()
+	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.ExtendIslands()
 	fmt.Printf("board:\n%s\n", board.StringDebug())
 	board.AddIslandBorders()
 	fmt.Printf("board:\n%s\n", board.StringDebug())
@@ -538,6 +719,6 @@ func main() {
 }
 
 //NEXT: reachability by islands
-//NEXT: same thing for numberless islands?
+//NEXT: reachability for numberless islands?
 //NEXT: all liberties of island one short of completion border the same unknown cell? e.g., the corner away from a cornered 2?
-//NEXT: fill elbows
+//NEXT: correctness check
