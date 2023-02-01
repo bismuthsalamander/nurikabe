@@ -524,15 +524,6 @@ func (b *Board) PaintTwoBorderedCells() {
 	}
 }
 
-func contains(haystack []Coordinate, needle Coordinate) bool {
-	for _, e := range haystack {
-		if e == needle {
-			return true
-		}
-	}
-	return false
-}
-
 func (b *Board) WallDfsRec(c chan *CoordinateSet, members *CoordinateSet, depth int) {
 	neighbors := b.NeighborsWith(members, PAINTED)
 	if neighbors.Size() > 0 {
