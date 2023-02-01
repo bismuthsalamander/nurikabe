@@ -261,7 +261,6 @@ func (b *Board) MarkClear(r int, c int) {
 	b.MergeIslands()
 }
 
-// eventually this func will include tracking "wall islands" or WallGroups
 func (b *Board) MarkPainted(r int, c int) {
 	if b.Grid[r][c] == PAINTED {
 		return
@@ -283,7 +282,6 @@ func (b Board) CharAt(r int, c int) string {
 				return islandSpecChar(spec.Size)
 			}
 		}
-		//return string([]rune{0x81})
 		return "."
 	}
 	return "?"
@@ -408,6 +406,9 @@ func (b *Board) Neighbors(c *CoordinateSet) *CoordinateSet {
 			rset.Add(m.Plus(0, 1))
 		}
 	}
+	for m := range c.Map {
+		rset.Del(m)
+	}
 	return rset
 }
 
@@ -449,7 +450,6 @@ func (b *Board) AddIslandBorders() {
 	for _, island := range b.Islands {
 		if !island.BordersAdded && island.CurrentSize == island.TargetSize {
 			targets := b.NeighborsWith(island.Members, UNKNOWN)
-			//fmt.Printf("Neighbors of %s\n%s\n", island.Members, targets)
 			for coord := range targets.Map {
 				b.MarkPainted(coord.Row, coord.Col)
 			}
@@ -533,31 +533,27 @@ func contains(haystack []Coordinate, needle Coordinate) bool {
 	return false
 }
 
-func (b *Board) WallDfsRec(c chan []Coordinate, pathToHere []Coordinate, island *Island) {
-	neighbors := b.CellNeighbors(pathToHere[len(pathToHere)-1])
+func (b *Board) WallDfsRec(c chan *CoordinateSet, members *CoordinateSet, depth int) {
+	neighbors := b.NeighborsWith(members, PAINTED)
+	if neighbors.Size() > 0 {
+		c <- members.Copy()
+		return
+	}
+	neighbors = b.NeighborsWith(members, UNKNOWN)
 	for n := range neighbors.Map {
-		if contains(pathToHere, n) || island.Contains(n) {
-			continue
-		}
-		pathToHere = append(pathToHere, n)
 		if b.Get(n) == PAINTED {
-			out := make([]Coordinate, len(pathToHere))
-			copy(out, pathToHere)
-			c <- out
+			c <- members.Copy()
 		} else if b.Get(n) == UNKNOWN {
-			b.WallDfsRec(c, pathToHere, island)
+			members.Add(n)
+			b.WallDfsRec(c, members, depth+1)
+			members.Del(n)
 		}
-		pathToHere = pathToHere[:len(pathToHere)-1]
 	}
 }
 
-func (b *Board) WallDfs(c chan []Coordinate, island *Island) {
-	p := make([]Coordinate, 0, 1)
-	for m := range island.Members.Map {
-		p = append(p, m)
-		b.WallDfsRec(c, p, island)
-		p = p[:0]
-	}
+func (b *Board) WallDfs(c chan *CoordinateSet, island *Island) {
+	members := island.Members.Copy()
+	b.WallDfsRec(c, members, 0)
 	close(c)
 }
 
@@ -566,20 +562,17 @@ func (b *Board) ExtendWallIslands() {
 		if wi.CurrentSize == b.Problem.TargetWallCount {
 			continue
 		}
-		c := make(chan []Coordinate)
+		c := make(chan *CoordinateSet)
 		go b.WallDfs(c, &wi)
 		necessary := <-c
-		//trim off first and last, because origin and destination are already painted
-		necessary = necessary[1 : len(necessary)-1]
-		for path := range c {
-			for i := 0; i < len(necessary); i++ {
-				if !contains(path, necessary[i]) {
-					necessary = append(necessary[0:i], necessary[i+1:]...)
-					i--
+		for p := range c {
+			for cell := range necessary.Map {
+				if !p.Contains(cell) {
+					necessary.Del(cell)
 				}
 			}
 		}
-		for _, target := range necessary {
+		for target := range necessary.Map {
 			b.MarkPainted(target.Row, target.Col)
 		}
 	}
