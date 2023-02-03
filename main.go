@@ -107,6 +107,14 @@ type Island struct {
 	IslandType   int
 }
 
+func (i *Island) String() string {
+	if i.IslandType == CLEAR_ISLAND {
+		return i.Members.String() + fmt.Sprintf(" %d/%d", i.CurrentSize, i.TargetSize)
+	} else {
+		return i.Members.String() + fmt.Sprintf(" %d", i.CurrentSize)
+	}
+}
+
 func (i *Island) Contains(c Coordinate) bool {
 	return i.Members.Contains(c)
 }
@@ -202,6 +210,7 @@ func (i *Island) Absorb(other Island) {
 	//Options: (1) always detect BEFOREHAND and prevent the cell from being marked incorrectly
 	//(2) Bubble up errors
 	//(3) Add this condition to the consistency/could-be-correct-ness/error-freeness check (i.e., number of islands with TargetSize > 0 == len(b.Problem.IslandSpecs))
+
 	if i.TargetSize == 0 {
 		i.TargetSize = other.TargetSize
 	}
@@ -218,7 +227,6 @@ func (b *Board) MergeIslands() {
 	changed := true
 	for changed {
 		changed = false
-		newIslands := make([]Island, 0)
 		for i := 0; i < len(b.Islands); i++ {
 			for j := i + 1; j < len(b.Islands); j++ {
 				if b.Islands[i].BordersIsland(b.Islands[j]) {
@@ -227,9 +235,7 @@ func (b *Board) MergeIslands() {
 					b.Islands = append(b.Islands[:j], b.Islands[j+1:]...)
 				}
 			}
-			newIslands = append(newIslands, b.Islands[i])
 		}
-		b.Islands = newIslands
 	}
 }
 
@@ -270,7 +276,7 @@ func (b *Board) MarkPainted(r int, c int) {
 	b.MergeWallIslands()
 }
 
-func (b Board) CharAt(r int, c int) string {
+func (b *Board) CharAt(r int, c int) string {
 	switch b.Grid[r][c] {
 	case UNKNOWN:
 		return "_"
@@ -287,7 +293,7 @@ func (b Board) CharAt(r int, c int) string {
 	return "?"
 }
 
-func (b Board) String() string {
+func (b *Board) String() string {
 	s := ""
 	for ri, row := range b.Grid {
 		for ci := range row {
@@ -300,11 +306,11 @@ func (b Board) String() string {
 	return s
 }
 
-func (b Board) Get(c Coordinate) Cell {
+func (b *Board) Get(c Coordinate) Cell {
 	return b.Grid[c.Row][c.Col]
 }
 
-func (b Board) StringDebug() string {
+func (b *Board) StringDebug() string {
 	s := b.String() + "\n"
 	if len(b.Islands) > 0 {
 		s += "Islands:\n"
@@ -318,9 +324,7 @@ func (b Board) StringDebug() string {
 			s += fmt.Sprintf("%v\n", island)
 		}
 	}
-	if s[len(s)-1] == '\n' {
-		s = s[:len(s)-1]
-	}
+	s += fmt.Sprintf("Solved: %v", b.IsSolved())
 	return s
 }
 
@@ -373,7 +377,7 @@ func DefFromString(input string) ProblemDef {
 	return prob
 }
 
-func (b Board) CellNeighbors(c Coordinate) *CoordinateSet {
+func (b *Board) CellNeighbors(c Coordinate) *CoordinateSet {
 	rset := EmptyCoordinateSet()
 	if c.Row-1 >= 0 {
 		rset.Add(c.Plus(-1, 0))
@@ -434,9 +438,67 @@ func (b *Board) NeighborsWith(c *CoordinateSet, val Cell) *CoordinateSet {
 	return rset
 }
 
+func (b *Board) RebuildIslands() {
+	b.Islands = b.Islands[:0]
+	b.WallIslands = b.WallIslands[:0]
+	for r := 0; r < b.Problem.Height; r++ {
+		for c := 0; c < b.Problem.Width; c++ {
+			switch b.Grid[r][c] {
+			case PAINTED:
+				b.WallIslands = append(b.WallIslands, MakeWallIsland(r, c))
+			case CLEAR:
+				tSize := 0
+				for _, spec := range b.Problem.IslandSpecs {
+					if spec.Row == r && spec.Col == c {
+						tSize = spec.Size
+					}
+				}
+				b.Islands = append(b.Islands, MakeIsland(r, c, tSize))
+			}
+		}
+	}
+	b.MergeIslands()
+	b.MergeWallIslands()
+}
+
+func (b *Board) IsSolved() bool {
+	for r := 0; r < b.Problem.Height; r++ {
+		for c := 0; c < b.Problem.Width; c++ {
+			if b.Grid[r][c] == UNKNOWN {
+				return false
+			}
+		}
+	}
+	for r := 0; r < b.Problem.Height-1; r++ {
+		for c := 0; c < b.Problem.Width-1; c++ {
+			painted := 0
+			for dr := 0; dr < 2; dr++ {
+				for dc := 0; dc < 2; dc++ {
+					if b.Grid[r+dr][c+dc] == PAINTED {
+						painted++
+					}
+				}
+			}
+			if painted == 4 {
+				return false
+			}
+		}
+	}
+	b.RebuildIslands()
+	if len(b.WallIslands) > 1 {
+		return false
+	}
+	for _, i := range b.Islands {
+		if i.CurrentSize != i.TargetSize {
+			return false
+		}
+	}
+	return true
+}
+
 // TODO: it's probably more efficient to copy and paste Neighbors() and add the
 // emptiness checks inline.
-func (b Board) Liberties(i Island) *CoordinateSet {
+func (b *Board) Liberties(i Island) *CoordinateSet {
 	n := b.Neighbors(i.Members)
 	for m := range n.Map {
 		if b.Get(m) != UNKNOWN {
@@ -569,17 +631,29 @@ func (b *Board) ExtendWallIslands() {
 	}
 }
 
+func (b *Board) CountIslands(c *CoordinateSet) int {
+	ct := 0
+	for _, ispec := range b.Problem.IslandSpecs {
+		if c.Contains(Coordinate{ispec.Row, ispec.Col}) {
+			ct++
+		}
+	}
+	return ct
+}
+
 func (b *Board) IslandDfsRec(c chan *CoordinateSet, members *CoordinateSet, targetSize int) {
 	potentialNew := b.NeighborsWith(members, UNKNOWN)
 	for p := range potentialNew.Map {
-		members.Add(p)
-		members = members.Plus(b.NeighborsWith(members, CLEAR))
-		if members.Size() == targetSize {
-			c <- members.Copy()
-		} else {
-			b.IslandDfsRec(c, members, targetSize)
+		membersNew := members.Copy()
+		membersNew.Add(p)
+		membersNew = membersNew.Plus(b.NeighborsWith(members, CLEAR))
+		if b.CountIslands(membersNew) == 1 {
+			if membersNew.Size() == targetSize {
+				c <- membersNew.Copy()
+			} else {
+				b.IslandDfsRec(c, membersNew, targetSize)
+			}
 		}
-		members.Del(p)
 	}
 }
 
@@ -601,15 +675,24 @@ func (b *Board) ExtendIslands() {
 		c := make(chan *CoordinateSet)
 		go b.IslandDfs(c, &i)
 		necessary := <-c
+		necessaryNeighbors := b.NeighborsWith(necessary, UNKNOWN)
 		for members := range c {
 			for cell := range necessary.Map {
 				if !members.Contains(cell) {
 					necessary.Del(cell)
 				}
 			}
+			for cell := range necessaryNeighbors.Map {
+				if !members.Contains(cell) {
+					necessaryNeighbors.Del(cell)
+				}
+			}
 		}
 		for target := range necessary.Map {
 			b.MarkClear(target.Row, target.Col)
+		}
+		for target := range necessaryNeighbors.Map {
+			b.MarkPainted(target.Row, target.Col)
 		}
 	}
 }
@@ -695,6 +778,8 @@ func TryParseFile(f string) {
 	fmt.Printf("board:\n%s\n", board.StringDebug())
 	board.AddIslandBorders()
 	fmt.Printf("board:\n%s\n", board.StringDebug())
+	board.RebuildIslands()
+	fmt.Printf("board after rebuild:\n%s\n", board.StringDebug())
 }
 
 func main() {
@@ -704,5 +789,5 @@ func main() {
 
 //NEXT: reachability by islands
 //NEXT: reachability for numberless islands?
-//NEXT: all liberties of island one short of completion border the same unknown cell? e.g., the corner away from a cornered 2?
-//NEXT: correctness check
+//TEST THIS: all liberties of island one short of completion border the same unknown cell? e.g., the corner away from a cornered 2?
+//NEXT: what about islands separating the grid (i.e., diagonally adjacent line on clear cells from edge to edge)?
