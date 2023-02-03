@@ -382,37 +382,23 @@ func DefFromString(input string) ProblemDef {
 }
 
 func (b *Board) CellNeighbors(c Coordinate) *CoordinateSet {
-	rset := EmptyCoordinateSet()
-	if c.Row-1 >= 0 {
-		rset.Add(c.Plus(-1, 0))
-	}
-	if c.Row+1 < b.Problem.Height {
-		rset.Add(c.Plus(1, 0))
-	}
-	if c.Col-1 >= 0 {
-		rset.Add(c.Plus(0, -1))
-	}
-	if c.Col+1 < b.Problem.Width {
-		rset.Add(c.Plus(0, 1))
-	}
-	return rset
+	cs := EmptyCoordinateSet()
+	cs.Add(c)
+	return b.Neighbors(cs)
 }
 
 func (b *Board) Neighbors(c *CoordinateSet) *CoordinateSet {
 	rset := EmptyCoordinateSet()
 	for m := range c.Map {
-		if m.Row-1 >= 0 {
-			rset.Add(m.Plus(-1, 0))
+		for dx := -1; dx < 2; dx += 2 {
+			if m.Row+dx < b.Problem.Height {
+				rset.Add(m.Plus(dx, 0))
+			}
+			if m.Col+dx < b.Problem.Width {
+				rset.Add(m.Plus(0, dx))
+			}
 		}
-		if m.Row+1 < b.Problem.Height {
-			rset.Add(m.Plus(1, 0))
-		}
-		if m.Col-1 >= 0 {
-			rset.Add(m.Plus(0, -1))
-		}
-		if m.Col+1 < b.Problem.Width {
-			rset.Add(m.Plus(0, 1))
-		}
+
 	}
 	for m := range c.Map {
 		rset.Del(m)
