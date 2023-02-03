@@ -324,7 +324,11 @@ func (b *Board) StringDebug() string {
 			s += fmt.Sprintf("%v\n", island)
 		}
 	}
-	s += fmt.Sprintf("Solved: %v", b.IsSolved())
+	solved, err := b.IsSolved()
+	s += fmt.Sprintf("Solved: %v", solved)
+	if err != nil {
+		s += fmt.Sprintf(" (reason: %v)", err)
+	}
 	return s
 }
 
@@ -460,51 +464,46 @@ func (b *Board) RebuildIslands() {
 	b.MergeAll()
 }
 
-func (b *Board) IsSolved() bool {
+func (b *Board) IsSolved() (bool, error) {
 	for r := 0; r < b.Problem.Height; r++ {
 		for c := 0; c < b.Problem.Width; c++ {
 			if b.Grid[r][c] == UNKNOWN {
-				return false
+				return false, fmt.Errorf("cell %v is unknown", Coordinate{r, c})
 			}
-		}
-	}
-	for r := 0; r < b.Problem.Height-1; r++ {
-		for c := 0; c < b.Problem.Width-1; c++ {
-			painted := 0
-			for dr := 0; dr < 2; dr++ {
-				for dc := 0; dc < 2; dc++ {
-					if b.Grid[r+dr][c+dc] == PAINTED {
-						painted++
+			if r < b.Problem.Height-1 && c < b.Problem.Width-1 {
+				painted := 0
+				for dr := 0; dr < 2; dr++ {
+					for dc := 0; dc < 2; dc++ {
+						if b.Grid[r+dr][c+dc] == PAINTED {
+							painted++
+						}
 					}
 				}
-			}
-			if painted == 4 {
-				return false
+				if painted == 4 {
+					return false, fmt.Errorf("two-by-two black square at %v", Coordinate{r, c})
+				}
 			}
 		}
 	}
 	b.RebuildIslands()
 	if len(b.WallIslands) > 1 {
-		return false
+		return false, fmt.Errorf("walls are not all joined")
 	}
 	for _, i := range b.Islands {
 		if i.CurrentSize != i.TargetSize {
-			return false
+			coord := Coordinate{}
+			for k := range i.Members.Map {
+				coord = k
+				break
+			}
+			return false, fmt.Errorf("island at %v has size %d (should be %d)", coord, i.CurrentSize, i.TargetSize)
 		}
 	}
-	return true
+	return true, nil
 }
 
-// TODO: it's probably more efficient to copy and paste Neighbors() and add the
-// emptiness checks inline.
 func (b *Board) Liberties(i Island) *CoordinateSet {
-	n := b.Neighbors(i.Members)
-	for m := range n.Map {
-		if b.Get(m) != UNKNOWN {
-			n.Del(m)
-		}
-	}
-	return n
+	return b.NeighborsWith(i.Members, UNKNOWN)
 }
 
 func (b *Board) CountIslands(c *CoordinateSet) int {
