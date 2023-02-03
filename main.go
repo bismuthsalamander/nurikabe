@@ -423,17 +423,13 @@ func (b *Board) Neighbors(c *CoordinateSet) *CoordinateSet {
 func (b *Board) NeighborsWith(c *CoordinateSet, val Cell) *CoordinateSet {
 	rset := EmptyCoordinateSet()
 	for m := range c.Map {
-		if m.Row-1 >= 0 && b.Grid[m.Row-1][m.Col] == val {
-			rset.Add(m.Plus(-1, 0))
-		}
-		if m.Row+1 < b.Problem.Height && b.Grid[m.Row+1][m.Col] == val {
-			rset.Add(m.Plus(1, 0))
-		}
-		if m.Col-1 >= 0 && b.Grid[m.Row][m.Col-1] == val {
-			rset.Add(m.Plus(0, -1))
-		}
-		if m.Col+1 < b.Problem.Width && b.Grid[m.Row][m.Col+1] == val {
-			rset.Add(m.Plus(0, 1))
+		for dx := -1; dx < 2; dx += 2 {
+			if m.Row+dx >= 0 && b.Grid[m.Row+dx][m.Col] == val {
+				rset.Add(m.Plus(dx, 0))
+			}
+			if m.Col+dx >= 0 && b.Grid[m.Row][m.Col+dx] == val {
+				rset.Add(m.Plus(0, dx))
+			}
 		}
 	}
 	for m := range c.Map {
