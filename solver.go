@@ -154,25 +154,7 @@ func (b *Board) PaintTwoBorderedCells() bool {
 	return didChange
 }
 
-func (b *Board) WallDfsRec(c chan *CoordinateSet, members *CoordinateSet) {
-	neighbors := b.NeighborsWith(members, PAINTED)
-	if neighbors.Size() > 0 {
-		c <- members.Copy()
-		return
-	}
-	neighbors = b.NeighborsWith(members, UNKNOWN)
-	for n := range neighbors.Map {
-		if b.Get(n) == PAINTED {
-			c <- members.Copy()
-		} else if b.Get(n) == UNKNOWN && members.CanAddWall(n) {
-			members.Add(n)
-			b.WallDfsRec(c, members)
-			members.Del(n)
-		}
-	}
-}
-
-func (b *Board) WallDfsSingle(members *CoordinateSet) *CoordinateSet {
+func (b *Board) WallDfs(members *CoordinateSet) *CoordinateSet {
 	necessary := EmptyCoordinateSet()
 	for r := 0; r < b.Problem.Height; r++ {
 		for c := 0; c < b.Problem.Width; c++ {
@@ -182,11 +164,11 @@ func (b *Board) WallDfsSingle(members *CoordinateSet) *CoordinateSet {
 	for k := range members.Map {
 		necessary.Del(k)
 	}
-	b.WallDfsSingleRec(members, necessary)
+	b.WallDfsRec(members, necessary)
 	return necessary
 }
 
-func (b *Board) WallDfsSingleRec(members *CoordinateSet, necessary *CoordinateSet) {
+func (b *Board) WallDfsRec(members *CoordinateSet, necessary *CoordinateSet) {
 	if necessary.IsEmpty() || members.ContainsAll(necessary) {
 		return
 	}
@@ -205,16 +187,10 @@ func (b *Board) WallDfsSingleRec(members *CoordinateSet, necessary *CoordinateSe
 	for n := range neighbors.Map {
 		if b.Get(n) == UNKNOWN && members.CanAddWall(n) {
 			members.Add(n)
-			b.WallDfsSingleRec(members, necessary)
+			b.WallDfsRec(members, necessary)
 			members.Del(n)
 		}
 	}
-}
-
-func (b *Board) WallDfs(c chan *CoordinateSet, island *Island) {
-	members := island.Members.Copy()
-	b.WallDfsRec(c, members)
-	close(c)
 }
 
 // Two possible optimizations:
@@ -231,7 +207,7 @@ func (b *Board) ExtendWallIslands() bool {
 		if wi.CurrentSize == b.Problem.TargetWallCount {
 			continue
 		}
-		necessaryMembers := b.WallDfsSingle(wi.Members)
+		necessaryMembers := b.WallDfs(wi.Members)
 		for target := range necessaryMembers.Map {
 			didChange = b.MarkPainted(target.Row, target.Col) || didChange
 		}
