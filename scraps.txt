@@ -1,0 +1,98 @@
+package main
+
+/*
+func (b *Board) PreventWallSplits() bool {
+	Watch.Start("PWS")
+	didChange := false
+	for r := 0; r < b.Problem.Height-1; r++ {
+		for c := 0; c < b.Problem.Width-1; c++ {
+			if b.Grid[r][c] != UNKNOWN {
+				continue
+			}
+			cs := EmptyCoordinateSet()
+			cs.Add(Coordinate{r, c})
+			if b.SetSplitsWalls(cs) {
+				didChange = b.MarkPainted(r, c) || didChange
+			}
+		}
+	}
+	Watch.Stop("PWS")
+	return didChange
+}
+*/
+
+/*func (b *Board) PaintUnreachablesSlow() bool {
+	didChange := false
+	for r := 0; r < b.Problem.Height; r++ {
+	oneCell:
+		for c := 0; c < b.Problem.Width; c++ {
+			coord := Coordinate{r, c}
+			for _, i := range b.Islands {
+				if b.CanIslandReach(i, coord) {
+					continue oneCell
+				}
+			}
+			didChange = b.MarkPainted(coord.Row, coord.Col) || didChange
+		}
+	}
+	return didChange
+}*/
+/*
+// "Can any of these source nodes reach the destination node within n steps?"
+// No need for priority queues; we just expand the neighbor set on each iteration,
+// making sure to exclude nodes already in the set, returning true if we ever see the
+// destination node and returning false after n iterations.
+//
+// TODO: should we exclude certain impossible island expansions? e.g., diagonally connected
+// line of clear cells from wall to wall? including cells that neighbors another island?
+func (b *Board) CanIslandReach(i *Island, target Coordinate) bool {
+	n := i.TargetSize - i.CurrentSize
+	//Shortcut: if the island has no member m with manhattan distance(m, target) <= n, we return false
+	found := false
+	for source := range i.Members.Map {
+		if source.ManhattanDistance(target) <= n {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return false
+	}
+	return b.CanIslandReachRec(i, i.Members, target, n)
+}
+
+func (b *Board) CanIslandReachRec(originIsland *Island, reachable *CoordinateSet, target Coordinate, n int) bool {
+	if reachable.Contains(target) && n >= 0 {
+		return true
+	} else if n <= 0 {
+		return false
+	}
+	newReachable := b.Neighbors(reachable)
+	for k := range newReachable.Map {
+		//For the newly reachables that do NOT border an existing island, add them in
+		//For the newly reachables that DO border an existing island, remove them from newReachable, but
+		//spawn off a recursive call that adds in EACH member of that island and reduces n accordingly
+		//Could we include no-number islands by simply absorbing the entire island, then checking for
+		//n>=0 and reachable.Contains(target)?
+		if b.Get(k) == PAINTED {
+			newReachable.Del(k)
+		} else if b.Get(k) == UNKNOWN {
+			if b.BordersMultipleRootedIslands(k) {
+				newReachable.Del(k)
+			} else {
+				/*ni := b.BorderingIsland(k)
+				if ni != nil && ni.Root != originIsland.Root {
+					newReachable.Del(k)
+					if b.CanIslandReachRec(originIsland, reachable.Plus(ni.Members), target, n-ni.Members.Size()) {
+						return true
+					}
+				}*/
+			}
+		} else if b.Get(k) == CLEAR { //it's UNKNOWN
+			fmt.Printf("ERROR!!!!")
+			os.Exit(0)
+		}
+	}
+	return b.CanIslandReachRec(originIsland, reachable.Plus(newReachable), target, n-1)
+}
+*/
