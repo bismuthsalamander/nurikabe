@@ -32,7 +32,7 @@ func (c Coordinate) String() string {
 	return fmt.Sprintf("(r%d, c%d)", c.Row, c.Col)
 }
 
-func (c Coordinate) Plus(dr int, dc int) Coordinate {
+func (c Coordinate) Translate(dr int, dc int) Coordinate {
 	return Coordinate{c.Row + dr, c.Col + dc}
 }
 
@@ -87,6 +87,12 @@ func (s CoordinateSet) Plus(other *CoordinateSet) *CoordinateSet {
 	return cs
 }
 
+func (cs *CoordinateSet) AddAll(other *CoordinateSet) {
+	for v := range other.Map {
+		cs.Add(v)
+	}
+}
+
 func (s *CoordinateSet) Contains(c Coordinate) bool {
 	if val, ok := s.Map[c]; val && ok {
 		return true
@@ -110,7 +116,7 @@ func (s *CoordinateSet) Copy() *CoordinateSet {
 	return &cs
 }
 
-func (s *CoordinateSet) Borders(c Coordinate) bool {
+func (s *CoordinateSet) BordersCoordinate(c Coordinate) bool {
 	if s.Contains(c) {
 		return false
 	}
@@ -152,7 +158,7 @@ func (s *CoordinateSet) CanAddWall(c Coordinate) bool {
 			if dr == 0 && dc == 0 {
 				continue
 			}
-			n[idx] = s.Contains(c.Plus(dr, dc))
+			n[idx] = s.Contains(c.Translate(dr, dc))
 			idx++
 		}
 	}
@@ -324,15 +330,12 @@ func AreAdjacent(a Coordinate, b Coordinate) bool {
 	dr := math.Abs(float64(a.Row) - float64(b.Row))
 	dc := math.Abs(float64(a.Col) - float64(b.Col))
 	return (dr == 1 && dc == 0) || (dr == 0 && dc == 1)
-	/*
-		if dr > 1 || dc > 1 {
-			return false
-		}
-		if dr > 0 && dc > 0 {
-			return false
-		}
-		return true
-	*/
+}
+
+func AreDiagonallyAdjacent(a Coordinate, b Coordinate) bool {
+	dr := a.Row - b.Row
+	dc := a.Col - b.Col
+	return dr <= 1 && dr >= -1 && dc <= 1 && dc >= -1
 }
 
 func (i *Island) BordersCell(c Coordinate) bool {
@@ -344,15 +347,38 @@ func (i *Island) BordersCell(c Coordinate) bool {
 	return false
 }
 
-func (i *Island) BordersIsland(other *Island) bool {
-	for m1 := range i.Members.Map {
-		for m2 := range other.Members.Map {
+func (cs *CoordinateSet) BordersSet(other *CoordinateSet) bool {
+	for m1 := range cs.Map {
+		for m2 := range other.Map {
 			if AreAdjacent(m1, m2) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func (cs *CoordinateSet) BordersSetDiagonally(other *CoordinateSet) bool {
+	for m1 := range cs.Map {
+		for m2 := range other.Map {
+			if AreDiagonallyAdjacent(m1, m2) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (i *Island) BordersIsland(other *Island) bool {
+	return i.Members.BordersSet(other.Members)
+}
+
+func (i *Island) BordersSet(other *CoordinateSet) bool {
+	return i.Members.BordersSet(other)
+}
+
+func (i *Island) BordersSetDiagonally(other *CoordinateSet) bool {
+	return i.Members.BordersSetDiagonally(other)
 }
 
 func (i *Island) Absorb(other *Island) {
@@ -567,7 +593,6 @@ func BoardFromString(input string) *Board {
 			lines = append(lines, txt)
 		}
 	}
-	fmt.Printf("%v\n", b)
 	for ri, row := range lines {
 		for ci, cell := range row {
 			if cell == 'X' {
@@ -592,11 +617,11 @@ func (b *Board) Neighbors(c *CoordinateSet) *CoordinateSet {
 	rset := EmptyCoordinateSet()
 	for m := range c.Map {
 		for dx := -1; dx < 2; dx += 2 {
-			newCoord := m.Plus(dx, 0)
+			newCoord := m.Translate(dx, 0)
 			if b.IsInBounds(newCoord) {
 				rset.Add(newCoord)
 			}
-			newCoord = m.Plus(0, dx)
+			newCoord = m.Translate(0, dx)
 			if b.IsInBounds(newCoord) {
 				rset.Add(newCoord)
 			}
@@ -612,13 +637,13 @@ func (b *Board) Neighbors(c *CoordinateSet) *CoordinateSet {
 func (b *Board) HasNeighborWith(c *CoordinateSet, val Cell) bool {
 	for m := range c.Map {
 		for dx := -1; dx < 2; dx += 2 {
-			newCoord := m.Plus(dx, 0)
+			newCoord := m.Translate(dx, 0)
 			if !c.Contains(newCoord) {
 				if b.IsInBounds(newCoord) && b.Get(newCoord) == val {
 					return true
 				}
 			}
-			newCoord = m.Plus(0, dx)
+			newCoord = m.Translate(0, dx)
 			if !c.Contains(newCoord) {
 				if b.IsInBounds(newCoord) && b.Get(newCoord) == val {
 					return true
@@ -633,11 +658,11 @@ func (b *Board) NeighborsWith(c *CoordinateSet, val Cell) *CoordinateSet {
 	rset := EmptyCoordinateSet()
 	for m := range c.Map {
 		for dx := -1; dx < 2; dx += 2 {
-			newCoord := m.Plus(dx, 0)
+			newCoord := m.Translate(dx, 0)
 			if b.IsInBounds(newCoord) && b.Get(newCoord) == val {
 				rset.Add(newCoord)
 			}
-			newCoord = m.Plus(0, dx)
+			newCoord = m.Translate(0, dx)
 			if b.IsInBounds(newCoord) && b.Get(newCoord) == val {
 				rset.Add(newCoord)
 			}
@@ -749,39 +774,36 @@ func (b *Board) BorderingIslands(c Coordinate) []*Island {
 	return res
 }
 
-func TryParseFile(f string) {
+func GetBoardFromFile(f string) *Board {
 	data, err := os.ReadFile(f)
 	if err != nil {
 		fmt.Printf("error: %v\n", err)
-		return
+		return nil
 	}
-	/*
-		prob := DefFromString(string(data))
-		fmt.Printf("problem:\n%s\n", prob)
-		board := BoardFromDef(prob)
-	*/
-	board := BoardFromString(string(data))
+	return BoardFromString(string(data))
+}
+
+func Solve(board *Board) {
 	start := time.Now()
-	fmt.Printf("Started solving: %s\n", time.Now())
+	fmt.Printf("Started solving: %s\n", start)
 	fmt.Printf("Initial:\n%s\n", board.StringDebug())
 	board.AutoSolve()
 	fmt.Printf("Board:\n%s\n", board.StringDebug())
-
 	fmt.Printf("Finished solving: %s (duration %.4f)\n", time.Now(), float64(time.Now().UnixNano()-start.UnixNano())/1000000000.0)
 }
 
 func main() {
-	//TryParseFile("problem1.txt")
+	b := GetBoardFromFile("problem1.txt")
+	Solve(b)
 	//TryParseFile("board2.txt")
-	TryParseFile("problem2.txt")
-	TryParseFile("problem3.txt")
+	Solve(GetBoardFromFile("problem2.txt"))
+	Solve(GetBoardFromFile("problem3.txt"))
+	Solve(GetBoardFromFile("problem4.txt"))
 }
 
-//NEXT: reachability by islands
-//NEXT: reachability for numberless islands?
-//TEST THIS: all liberties of island one short of completion border the same unknown cell? e.g., the corner away from a cornered 2?
-//NEXT: what about islands separating the grid (i.e., diagonally adjacent line on clear cells from edge to edge)?
-//DEBUG: at the end of problem 2, why can't the lower-left 3 see -- because it would need to extend out from the unrooted island!!
-//work on making tha thappen - switch CoordinateSet with an actual island?
-//why doesn't the 5 island fill in at least the cell north of it?
 //TODO: get the unrooted islands to expand outwards
+//check for splitting in PaintUnreachable? Would need to use the slow algo for that?
+//also use this to randomly paint edges and other unknowns? do we make a separate island slice, then merge them DIAGONALLY, then look for single-cell gaps or something?
+//what about detecting completely isolated wall islands?
+//do we ask each island for its liberties and see if they're completely contained in the island possibility?
+//TODO: fork off a hypothetical board?

@@ -29,7 +29,7 @@ func (b *Board) ExtendIslands() bool {
 				}
 			}
 			for cell := range necessaryNeighbors.Map {
-				if !members.Borders(cell) {
+				if !members.BordersCoordinate(cell) {
 					necessaryNeighbors.Del(cell)
 				}
 			}
@@ -237,13 +237,13 @@ func (b *Board) IslandDfsRec(ctx context.Context, c chan *CoordinateSet, members
 			if mergeThese.IsEmpty() {
 				break
 			}
-			membersNew = membersNew.Plus(mergeThese)
+			membersNew.AddAll(mergeThese)
 		}
 		if css.Contains(membersNew) {
 			continue
 		}
 		if b.CountNumberedIslands(membersNew) == 1 {
-			if membersNew.Size() == targetSize {
+			if membersNew.Size() == targetSize && !b.SetSplitsWalls(membersNew) {
 				css.Add(membersNew)
 				c <- membersNew.Copy()
 			} else if membersNew.Size() < targetSize {
@@ -359,7 +359,7 @@ func (b *Board) TrackReachableIslands(results [][]Cell, originIsland *Island, re
 				for _, ni := range neighboringIslands {
 					//this isn't right because we have to add ALL islands at once that border this cell
 					if ni != nil && ni.Root != originIsland.Root {
-						additionalNeighbors = additionalNeighbors.Plus(ni.Members)
+						additionalNeighbors.AddAll(ni.Members)
 					}
 				}
 				if additionalNeighbors.Size() > 0 {
@@ -475,6 +475,7 @@ func (b *Board) AutoSolve() bool {
 		changed = b.AddIslandBorders() || changed
 
 		changed = b.FillElbows() || changed
+		//changed = b.PreventWallSplits() || changed
 		changed = b.AddIslandBorders() || changed
 		changed = b.ExtendWallIslands() || changed
 		if b.TotalMarked == b.Problem.Width*b.Problem.Height {
