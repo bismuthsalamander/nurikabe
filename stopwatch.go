@@ -43,3 +43,7 @@ func (s *Stopwatch) Results() string {
 	}
 	return out
 }
+
+func (s *Stopwatch) BucketNanos(b string) int64 {
+	return s.Buckets[b]
+}

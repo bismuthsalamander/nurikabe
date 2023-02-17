@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"math"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"sort"
 	"strings"
@@ -49,12 +51,14 @@ func EmptyCoordinateSet() *CoordinateSet {
 	return &CoordinateSet{make(map[Coordinate]bool)}
 }
 
-func ToCoordinateSet(members []Coordinate) *CoordinateSet {
-	cs := CoordinateSet{make(map[Coordinate]bool)}
-	for _, c := range members {
-		cs.Add(c)
-	}
-	return &cs
+func EmptyCoordinateSetSz(sz int) *CoordinateSet {
+	return &CoordinateSet{make(map[Coordinate]bool, sz)}
+}
+
+func SingleCoordinateSet(c Coordinate) *CoordinateSet {
+	cs := EmptyCoordinateSet()
+	cs.Add(c)
+	return cs
 }
 
 func (s *CoordinateSet) Size() int {
@@ -73,13 +77,13 @@ func (s *CoordinateSet) Del(c Coordinate) {
 	delete(s.Map, c)
 }
 
-func (s *CoordinateSet) RemoveAll(other *CoordinateSet) {
+func (s *CoordinateSet) DelAll(other *CoordinateSet) {
 	for v := range other.Map {
 		s.Del(v)
 	}
 }
 
-func (s CoordinateSet) Plus(other *CoordinateSet) *CoordinateSet {
+func (s *CoordinateSet) Plus(other *CoordinateSet) *CoordinateSet {
 	cs := s.Copy()
 	for v := range other.Map {
 		cs.Add(v)
@@ -109,7 +113,7 @@ func (s *CoordinateSet) ToSlice() []Coordinate {
 }
 
 func (s *CoordinateSet) Copy() *CoordinateSet {
-	cs := CoordinateSet{make(map[Coordinate]bool)}
+	cs := CoordinateSet{make(map[Coordinate]bool, s.Size())}
 	for k := range s.Map {
 		cs.Add(k)
 	}
@@ -126,6 +130,18 @@ func (s *CoordinateSet) BordersCoordinate(c Coordinate) bool {
 		}
 	}
 	return false
+}
+
+func (cs *CoordinateSet) Equals(other *CoordinateSet) bool {
+	if cs.Size() != other.Size() {
+		return false
+	}
+	for k := range cs.Map {
+		if !other.Contains(k) {
+			return false
+		}
+	}
+	return true
 }
 
 func (superset *CoordinateSet) ContainsAll(subset *CoordinateSet) bool {
@@ -258,19 +274,23 @@ func (i *Island) Contains(c Coordinate) bool {
 	return i.Members.Contains(c)
 }
 
+func (i *Island) IsRooted() bool {
+	return !i.Root.IsNil()
+}
+
 const CLEAR_ISLAND = 0
 const WALL_ISLAND = 1
 
 func MakeRootedIsland(r int, c int, sz int) *Island {
-	return &Island{ToCoordinateSet([]Coordinate{{r, c}}), 1, sz, sz == 1, CLEAR_ISLAND, Coordinate{r, c}}
+	return &Island{SingleCoordinateSet(Coordinate{r, c}), 1, sz, sz == 1, CLEAR_ISLAND, Coordinate{r, c}}
 }
 
 func MakeUnrootedIsland(r int, c int) *Island {
-	return &Island{ToCoordinateSet([]Coordinate{{r, c}}), 1, 0, false, CLEAR_ISLAND, NilCoordinate()}
+	return &Island{SingleCoordinateSet(Coordinate{r, c}), 1, 0, false, CLEAR_ISLAND, NilCoordinate()}
 }
 
 func MakeWallIsland(r int, c int) *Island {
-	return &Island{ToCoordinateSet([]Coordinate{{r, c}}), 1, 0, false, WALL_ISLAND, NilCoordinate()}
+	return &Island{SingleCoordinateSet(Coordinate{r, c}), 1, 0, false, WALL_ISLAND, NilCoordinate()}
 }
 
 type ProblemDef struct {
@@ -390,8 +410,6 @@ func (i *Island) Absorb(other *Island) {
 
 	if i.TargetSize == 0 {
 		i.TargetSize = other.TargetSize
-	}
-	if i.Root.IsNil() {
 		i.Root = other.Root
 	}
 	cs := i.Members.Plus(other.Members)
@@ -614,7 +632,7 @@ func (b *Board) CellNeighbors(c Coordinate) *CoordinateSet {
 }
 
 func (b *Board) Neighbors(c *CoordinateSet) *CoordinateSet {
-	rset := EmptyCoordinateSet()
+	rset := EmptyCoordinateSetSz(c.Size() * 3)
 	for m := range c.Map {
 		for dx := -1; dx < 2; dx += 2 {
 			newCoord := m.Translate(dx, 0)
@@ -628,9 +646,7 @@ func (b *Board) Neighbors(c *CoordinateSet) *CoordinateSet {
 		}
 
 	}
-	for m := range c.Map {
-		rset.Del(m)
-	}
+	rset.DelAll(c)
 	return rset
 }
 
@@ -655,7 +671,7 @@ func (b *Board) HasNeighborWith(c *CoordinateSet, val Cell) bool {
 }
 
 func (b *Board) NeighborsWith(c *CoordinateSet, val Cell) *CoordinateSet {
-	rset := EmptyCoordinateSet()
+	rset := EmptyCoordinateSetSz(c.Size() * 3)
 	for m := range c.Map {
 		for dx := -1; dx < 2; dx += 2 {
 			newCoord := m.Translate(dx, 0)
@@ -668,9 +684,7 @@ func (b *Board) NeighborsWith(c *CoordinateSet, val Cell) *CoordinateSet {
 			}
 		}
 	}
-	for m := range c.Map {
-		rset.Del(m)
-	}
+	rset.DelAll(c)
 	return rset
 }
 
@@ -790,20 +804,71 @@ func Solve(board *Board) {
 	board.AutoSolve()
 	fmt.Printf("Board:\n%s\n", board.StringDebug())
 	fmt.Printf("Finished solving: %s (duration %.4f)\n", time.Now(), float64(time.Now().UnixNano()-start.UnixNano())/1000000000.0)
+	fmt.Printf("Watch: %v\n", Watch.Results())
 }
 
 func main() {
-	b := GetBoardFromFile("problem1.txt")
-	Solve(b)
+	fmt.Println("Hello!")
+	// CPUProfile enables cpu profiling. Note: Default is CPU
+	//defer profile.Start(profile.CPUProfile).Stop()
+	/*
+		// GoroutineProfile enables goroutine profiling.
+		// It returns all Goroutines alive when defer occurs.
+		defer profile.Start(profile.GoroutineProfile).Stop()
+
+		// BlockProfile enables block (contention) profiling.
+		defer profile.Start(profile.BlockProfile).Stop()
+
+		// ThreadcreationProfile enables thread creation profiling.
+		defer profile.Start(profile.ThreadcreationProfile).Stop()
+
+		// MemProfileHeap changes which type of memory profiling to
+		// profile the heap.
+		defer profile.Start(profile.MemProfileHeap).Stop()
+
+		// MemProfileAllocs changes which type of memory to profile
+		// allocations.
+		defer profile.Start(profile.MemProfileAllocs).Stop()
+
+		// MutexProfile enables mutex profiling.
+		defer profile.Start(profile.MutexProfile).Stop()
+	*/
+	//b := GetBoardFromFile("problem1.txt")
+	//Solve(b)
 	//TryParseFile("board2.txt")
-	Solve(GetBoardFromFile("problem2.txt"))
-	Solve(GetBoardFromFile("problem3.txt"))
-	Solve(GetBoardFromFile("problem4.txt"))
+	//Solve(GetBoardFromFile("problem2.txt"))
+	//Solve(GetBoardFromFile("problem3.txt"))
+	b := GetBoardFromFile("problem4.txt") //this problem will be helped by
+	idx := 0
+	fmt.Printf("islands %v\n", b.Islands)
+	for _, i := range b.Islands {
+		fmt.Printf("Hi %v root %v\n", i, i.IsRooted())
+		if !i.IsRooted() {
+			continue
+		}
+		fmt.Printf("Finding %v possibilities\n", i)
+		buck := fmt.Sprintf("island%v", idx)
+		Watch.Start(buck)
+		c := make(chan *CoordinateSet)
+		go b.FindPossibleIslands(c, i)
+		ct := 0
+		for range c {
+			ct += 1
+		}
+		Watch.Stop(buck)
+		fmt.Printf("Count was %d\n", ct)
+		idx++
+	}
+	fmt.Println(Watch.Results())
+	fmt.Printf("%v\n", b.StringDebug())
+	fmt.Println("Dunzo")
+	fmt.Println(http.ListenAndServe("localhost:6060", nil))
+	fmt.Println("Dunzo again")
 }
 
 //TODO: get the unrooted islands to expand outwards
-//check for splitting in PaintUnreachable? Would need to use the slow algo for that?
-//also use this to randomly paint edges and other unknowns? do we make a separate island slice, then merge them DIAGONALLY, then look for single-cell gaps or something?
-//what about detecting completely isolated wall islands?
+
+//speed up PaintUnreachableSlow (idk, figure it out) and get a sample problem where checking for splitting helps
+//add detection for isolating an INTERIOR wall island with a hypothetical island in SetSplitsWalls()
 //do we ask each island for its liberties and see if they're completely contained in the island possibility?
 //TODO: fork off a hypothetical board?

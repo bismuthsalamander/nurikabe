@@ -14,11 +14,14 @@ func (b *Board) ExtendIslands() bool {
 			continue
 		}
 		ctx, cancel := context.WithCancel(context.Background())
-		c := make(chan *CoordinateSet)
+		c := make(chan *CoordinateSet, 10)
 		go b.IslandDfs(ctx, c, i)
 		necessary := <-c
+		if necessary == nil {
+			fmt.Printf("ERROR!!!!\n\n\n\n\n\n\n\n\n%v\n%v\n", i, b.StringDebug())
+		}
 		necessaryNeighbors := b.NeighborsWith(necessary, UNKNOWN)
-		necessary.RemoveAll(i.Members)
+		necessary.DelAll(i.Members)
 		ct := 0
 		for members := range c {
 			ct++
@@ -161,9 +164,7 @@ func (b *Board) WallDfs(members *CoordinateSet) *CoordinateSet {
 			necessary.Add(Coordinate{r, c})
 		}
 	}
-	for k := range members.Map {
-		necessary.Del(k)
-	}
+	necessary.DelAll(members)
 	b.WallDfsRec(members, necessary)
 	return necessary
 }
@@ -271,64 +272,6 @@ func (b *Board) IslandDfs(ctx context.Context, c chan *CoordinateSet, island *Is
 	close(c)
 }
 
-// "Can any of these source nodes reach the destination node within n steps?"
-// No need for priority queues; we just expand the neighbor set on each iteration,
-// making sure to exclude nodes already in the set, returning true if we ever see the
-// destination node and returning false after n iterations.
-//
-// TODO: should we exclude certain impossible island expansions? e.g., diagonally connected
-// line of clear cells from wall to wall? including cells that neighbors another island?
-func (b *Board) CanIslandReach(i *Island, target Coordinate) bool {
-	n := i.TargetSize - i.CurrentSize
-	//Shortcut: if the island has no member m with manhattan distance(m, target) <= n, we return false
-	found := false
-	for source := range i.Members.Map {
-		if source.ManhattanDistance(target) <= n {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return false
-	}
-	return b.CanIslandReachRec(i, i.Members, target, n)
-}
-
-func (b *Board) CanIslandReachRec(originIsland *Island, reachable *CoordinateSet, target Coordinate, n int) bool {
-	if reachable.Contains(target) && n >= 0 {
-		return true
-	} else if n <= 0 {
-		return false
-	}
-	newReachable := b.Neighbors(reachable)
-	for k := range newReachable.Map {
-		//For the newly reachables that do NOT border an existing island, add them in
-		//For the newly reachables that DO border an existing island, remove them from newReachable, but
-		//spawn off a recursive call that adds in EACH member of that island and reduces n accordingly
-		//Could we include no-number islands by simply absorbing the entire island, then checking for
-		//n>=0 and reachable.Contains(target)?
-		if b.Get(k) == PAINTED {
-			newReachable.Del(k)
-		} else if b.Get(k) == UNKNOWN {
-			if b.BordersMultipleRootedIslands(k) {
-				newReachable.Del(k)
-			} else {
-				/*ni := b.BorderingIsland(k)
-				if ni != nil && ni.Root != originIsland.Root {
-					newReachable.Del(k)
-					if b.CanIslandReachRec(originIsland, reachable.Plus(ni.Members), target, n-ni.Members.Size()) {
-						return true
-					}
-				}*/
-			}
-		} else if b.Get(k) == CLEAR { //it's UNKNOWN
-			fmt.Printf("ERROR!!!!")
-			os.Exit(0)
-		}
-	}
-	return b.CanIslandReachRec(originIsland, reachable.Plus(newReachable), target, n-1)
-}
-
 const REACHABLE = 1
 const UNREACHABLE = 0
 
@@ -410,20 +353,92 @@ func (b *Board) PaintUnreachables() bool {
 }
 
 func (b *Board) PaintUnreachablesSlow() bool {
+	Watch.Start("PU_")
 	didChange := false
+	reachability := NewGrid(b.Problem.Width, b.Problem.Height)
 	for r := 0; r < b.Problem.Height; r++ {
 	oneCell:
 		for c := 0; c < b.Problem.Width; c++ {
 			coord := Coordinate{r, c}
+			if reachability[r][c] == REACHABLE {
+				continue
+			}
 			for _, i := range b.Islands {
-				if b.CanIslandReach(i, coord) {
+				if b.CanIslandReachSlow(i, coord, reachability) {
 					continue oneCell
 				}
 			}
 			didChange = b.MarkPainted(coord.Row, coord.Col) || didChange
 		}
 	}
+	Watch.Stop("PU_")
 	return didChange
+}
+
+// "Can any of these source nodes reach the destination node within n steps?"
+// No need for priority queues; we just expand the neighbor set on each iteration,
+// making sure to exclude nodes already in the set, returning true if we ever see the
+// destination node and returning false after n iterations.
+//
+// TODO: should we exclude certain impossible island expansions? e.g., diagonally connected
+// line of clear cells from wall to wall? including cells that neighbors another island?
+func (b *Board) CanIslandReachSlow(i *Island, target Coordinate, reachable [][]Cell) bool {
+	n := i.TargetSize - i.CurrentSize
+	//Shortcut: if the island has no member m with manhattan distance(m, target) <= n, we return false
+	found := false
+	for source := range i.Members.Map {
+		if source.ManhattanDistance(target) <= n {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return false
+	}
+	css := EmptyCoordinateSetSet()
+	return b.CanIslandReachRec(i, i.Members, target, css, reachable)
+}
+
+func (b *Board) CanIslandReachRec(originIsland *Island, members *CoordinateSet, target Coordinate, css *CoordinateSetSet, reachable [][]Cell) bool {
+	stepsLeft := originIsland.TargetSize - members.Size()
+	if members.Contains(target) && stepsLeft == 0 && !b.SetSplitsWalls(members) {
+		reachable[target.Row][target.Col] = REACHABLE
+		//fmt.Printf("Ret true")
+		return true
+	} else if stepsLeft <= 0 || css.Contains(members) {
+		//fmt.Printf("Ret false sl %d\n", stepsLeft)
+		return false
+	}
+	neighbors := b.Neighbors(members)
+	for k := range neighbors.Map {
+		if b.Get(k) == PAINTED {
+			continue
+		}
+		membersNew := members.Copy()
+		//fmt.Printf("Origin %v reachable %v k %v copied reachable %v\n", originIsland, reachable, k, membersNew)
+		membersNew.Add(k)
+		for {
+			mergeThese := b.NeighborsWith(membersNew, CLEAR)
+			if mergeThese.IsEmpty() {
+				break
+			}
+			membersNew.AddAll(mergeThese)
+		}
+		//fmt.Printf("Origin %v reachable %v membersNew %v\n", originIsland, reachable, membersNew)
+		if b.CountNumberedIslands(membersNew) > 1 /* || b.SetSplitsWalls(membersNew)*/ {
+			//fmt.Printf("Skipping because CNI is %v\n", b.CountNumberedIslands(membersNew))
+			continue
+		}
+		if b.CanIslandReachRec(originIsland, membersNew, target, css, reachable) {
+			return true
+		}
+		css.Add(membersNew)
+	}
+	css.Add(members)
+	if originIsland.CurrentSize == members.Size() {
+		//fmt.Printf("OI %v cannot reach %v\n", originIsland, target)
+	}
+	return false
 }
 
 func (b *Board) FillElbows() bool {
@@ -463,21 +478,30 @@ func (b *Board) AutoSolve() bool {
 	for changed {
 		changed = false
 		changed = b.PaintTwoBorderedCells() || changed
+		fmt.Printf("1\n%v\n", b.String())
 		changed = b.ExtendIslandsOneLiberty() || changed
+		fmt.Printf("2\n%v\n", b.String())
 		changed = b.AddIslandBorders() || changed
-		changed = b.PaintUnreachables() || changed
-
+		fmt.Printf("3\n%v\n", b.String())
+		changed = b.PaintUnreachablesSlow() || changed
+		fmt.Printf("4\n%v\n", b.String())
 		changed = b.ExtendWallIslandsOneLiberty() || changed
+		fmt.Printf("5\n%v\n", b.String())
 		//changed = b.ExtendIslands() || changed
 		//changed = b.PaintUnreachables() || changed
 		//changed = b.ExtendWallIslandsOneLiberty() || changed
 		changed = b.ExtendIslands() || changed
+		fmt.Printf("6\n%v\n", b.String())
 		changed = b.AddIslandBorders() || changed
+		fmt.Printf("7\n%v\n", b.String())
 
 		changed = b.FillElbows() || changed
+		fmt.Printf("%v\n", b.String())
 		//changed = b.PreventWallSplits() || changed
 		changed = b.AddIslandBorders() || changed
+		fmt.Printf("%v\n", b.String())
 		changed = b.ExtendWallIslands() || changed
+		fmt.Printf("%v\n", b.String())
 		if b.TotalMarked == b.Problem.Width*b.Problem.Height {
 			break
 		}
