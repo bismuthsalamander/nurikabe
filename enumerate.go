@@ -185,6 +185,8 @@ func (b *Board) RemoveFromPossibilities(newlyPainted Coordinate) {
 
 func (b *Board) PaintUnreachablesFast() bool {
 	Watch.Start("PaintUnreachablesFast")
+	const UNREACHABLE = 0
+	const REACHABLE = 1
 	reachability := NewGrid(b.Problem.Width, b.Problem.Height)
 	for _, i := range b.Islands {
 		for r := range i.Reachable.Map {

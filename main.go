@@ -587,18 +587,21 @@ func (b *Board) IsOnEdge(c Coordinate) bool {
 
 func (b *Board) StringDebug() string {
 	s := b.String() + "\n"
+	space := 1
 	if len(b.Islands) > 0 {
 		s += "Islands:\n"
 		for _, island := range b.Islands {
 			if island.CurrentSize < island.TargetSize {
 				s += fmt.Sprintf("%v\n", island)
+				space *= len(island.Possibilities)
 			}
 		}
 	}
 	solved, err := b.IsSolved()
 	s += fmt.Sprintf("Solved: %v", solved)
 	if err != nil {
-		s += fmt.Sprintf(" (reason: %v)", err)
+		s += fmt.Sprintf(" (reason: %v)\n", err)
+		s += fmt.Sprintf("Possible solutions: %d\n", space)
 	}
 	return s
 }
@@ -918,7 +921,5 @@ func main() {
 	fmt.Println("Dunzo again")
 }
 
-//TODO: get the unrooted islands to expand outwards - if only one island can reach an unrooted island,
-//TODO: how to handle unworkable *pairs* of possibilities?
-//speed up PaintUnreachableSlow (idk, figure it out) and get a sample problem where checking for splitting helps
+//TODO: for each possibility, check if any nearby island cannot handle consumption of the possibility and its neighbors.
 //TODO: fork off a hypothetical board?
