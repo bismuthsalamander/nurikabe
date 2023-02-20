@@ -1,11 +1,11 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 )
 
+/*
 func (b *Board) ExtendIslands() bool {
 	Watch.Start("EI-")
 	didChange := false
@@ -53,13 +53,16 @@ func (b *Board) ExtendIslands() bool {
 	Watch.Stop("EI-")
 	return didChange
 }
+*/
 
 func (b *Board) AddIslandBorders() bool {
 	Watch.Start("AIB")
 	didChange := false
 	for _, island := range b.Islands {
 		if island.ReadyForBorders {
+			fmt.Printf("It's ready")
 			targets := b.NeighborsWith(island.Members, UNKNOWN)
+			fmt.Printf("Have targets sz %d\n", targets.Size())
 			for coord := range targets.Map {
 				didChange = b.MarkPainted(coord.Row, coord.Col) || didChange
 			}
@@ -82,13 +85,14 @@ func (b *Board) ExtendIslandsOneLiberty() bool {
 				continue
 			}
 			lib := b.Liberties(island)
-			// One of the only ugly parts of using CoordinateSet for everything
 			if lib.Size() == 1 {
-				for c := range lib.Map {
-					result := b.MarkClear(c.Row, c.Col)
-					didChange = didChange || result
-					changed = changed || result
-				}
+				c := lib.OneMember()
+				fmt.Printf("Extending island %v to %v\n", island, c)
+				result := b.MarkClear(c.Row, c.Col)
+				didChange = didChange || result
+				changed = changed || result
+				fmt.Printf("Island at %v is now %v\n", c, b.IslandAt(c.Row, c.Col))
+				break
 			}
 		}
 	}
@@ -217,6 +221,7 @@ func (b *Board) ExtendWallIslands() bool {
 	return didChange
 }
 
+/*
 func (b *Board) IslandDfsRec(ctx context.Context, c chan *CoordinateSet, members *CoordinateSet, targetSize int, css *CoordinateSetSet) {
 	if css.Contains(members) {
 		return
@@ -271,6 +276,7 @@ func (b *Board) IslandDfs(ctx context.Context, c chan *CoordinateSet, island *Is
 	b.IslandDfsRec(ctx, c, hypoMembers, island.TargetSize, css)
 	close(c)
 }
+*/
 
 const REACHABLE = 1
 const UNREACHABLE = 0
@@ -425,7 +431,7 @@ func (b *Board) CanIslandReachRec(originIsland *Island, members *CoordinateSet, 
 			membersNew.AddAll(mergeThese)
 		}
 		//fmt.Printf("Origin %v reachable %v membersNew %v\n", originIsland, reachable, membersNew)
-		if b.CountNumberedIslands(membersNew) > 1 /* || b.SetSplitsWalls(membersNew)*/ {
+		if b.CountNumberedIslands(membersNew) > 1 { ///* || b.SetSplitsWalls(membersNew)*/ {
 			//fmt.Printf("Skipping because CNI is %v\n", b.CountNumberedIslands(membersNew))
 			continue
 		}
@@ -473,37 +479,89 @@ func (b *Board) FillElbows() bool {
 	return didChange
 }
 
-func (b *Board) AutoSolve() bool {
+func Check(b *Board, soln *Board) {
+	if soln == nil {
+		return
+	}
+	for r := 0; r < b.Problem.Height; r++ {
+		for c := 0; c < b.Problem.Width; c++ {
+			if b.Grid[r][c] == UNKNOWN {
+				continue
+			}
+			if b.Grid[r][c] != soln.Grid[r][c] {
+				fmt.Printf("ERROR AT %v, %v\n%v\n", r, c, b)
+				os.Exit(0)
+			}
+		}
+	}
+}
+
+func (b *Board) AutoSolve(sol *Board) bool {
+	b.PaintTwoBorderedCells()
+	b.ExtendIslandsOneLiberty()
+	b.AddIslandBorders()
+	b.PopulateIslandPossibilities()
 	changed := true
 	for changed {
 		changed = false
 		changed = b.PaintTwoBorderedCells() || changed
-		fmt.Printf("1\n%v\n", b.String())
+		fmt.Printf("1 painted 2bc\n%v\n", b.String())
+		Check(b, sol)
 		changed = b.ExtendIslandsOneLiberty() || changed
-		fmt.Printf("2\n%v\n", b.String())
+		fmt.Printf("2 extended 1lib\n%v\n", b.String())
+		Check(b, sol)
 		changed = b.AddIslandBorders() || changed
-		fmt.Printf("3\n%v\n", b.String())
-		changed = b.PaintUnreachablesSlow() || changed
-		fmt.Printf("4\n%v\n", b.String())
+		fmt.Printf("3 added borders\n%v\n", b.String())
+		Check(b, sol)
+		//changed = b.PaintUnreachablesSlow() || changed
+		changed = b.EliminateWallSplitters() || changed
+		fmt.Printf("3.5 removed splitters\n%v\n", b.String())
+		//changed = b.PaintUnreachablesSlow() || changed
+		//changed = b.PaintUnreachablesFast() || changed
+		//changed2 := b.PaintUnreachablesSlow()
+		b.RepopulateIslandReachables()
+		changed2 := b.PaintUnreachablesFast()
+		changed = changed2 || changed
+		//changed = b.PaintUnreachables() || changed
+		fmt.Printf("4 painted URslow\n%v\n", b.String())
+		if changed2 {
+			fmt.Println("Changed2!!!!!!")
+		}
+		Check(b, sol)
 		changed = b.ExtendWallIslandsOneLiberty() || changed
-		fmt.Printf("5\n%v\n", b.String())
+		fmt.Printf("5 extended WI1\n%v\n", b.String())
+		Check(b, sol)
 		//changed = b.ExtendIslands() || changed
 		//changed = b.PaintUnreachables() || changed
 		//changed = b.ExtendWallIslandsOneLiberty() || changed
-		changed = b.ExtendIslands() || changed
-		fmt.Printf("6\n%v\n", b.String())
-		changed = b.AddIslandBorders() || changed
-		fmt.Printf("7\n%v\n", b.String())
+		//changed = b.ExtendIslands() || changed
 
+		changed = b.ConnectUnrootedIslands() || changed
+		fmt.Printf("5.5 connected unrooted\n%v\n", b.String())
+		changed = b.ConnectTwoByOnes() || changed
+		fmt.Printf("5.6 connected 2x1s\n%v\n", b.String())
+		changed = b.FillIslandNecessaries() || changed
+		fmt.Printf("6 filled necessaries\n%v\n", b.String())
+		Check(b, sol)
+		changed = b.AddIslandBorders() || changed
+		fmt.Printf("7 added borders\n%v\n", b.String())
+		Check(b, sol)
 		changed = b.FillElbows() || changed
-		fmt.Printf("%v\n", b.String())
+		fmt.Printf("8 filled elbows\n%v\n", b.String())
+		Check(b, sol)
 		//changed = b.PreventWallSplits() || changed
 		changed = b.AddIslandBorders() || changed
-		fmt.Printf("%v\n", b.String())
+		fmt.Printf("9 added borders\n%v\n", b.String())
+		Check(b, sol)
 		changed = b.ExtendWallIslands() || changed
-		fmt.Printf("%v\n", b.String())
+		fmt.Printf("10 extended WI\n%v\n", b.String())
+		Check(b, sol)
 		if b.TotalMarked == b.Problem.Width*b.Problem.Height {
 			break
+		}
+		if !changed {
+			//fmt.Printf("*************RESCUE")
+			//changed = b.PaintUnreachablesSlow()
 		}
 	}
 	fmt.Printf("Stopwatch:\n%s", Watch.Results())
