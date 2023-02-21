@@ -16,6 +16,7 @@ func init() {
 	Watch = Stopwatch{}
 	Watch.Buckets = make(map[string]int64)
 	Watch.BucketStarts = make(map[string]int64)
+	Watch.Start("")
 }
 
 func (s *Stopwatch) Start(b string) {
@@ -41,6 +42,9 @@ func (s *Stopwatch) Results() string {
 	for k, v := range s.Buckets {
 		out += fmt.Sprintf("%s: %.4f\n", k, float64(v)/1000000000.0)
 	}
+	s.Stop("")
+	out += fmt.Sprintf("TOTAL: %.4f\n", float64(s.Buckets[""])/1000000000.0)
+	s.Start("")
 	return out
 }
 

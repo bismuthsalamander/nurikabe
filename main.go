@@ -26,10 +26,6 @@ func NilCoordinate() Coordinate {
 	return Coordinate{-1, -1}
 }
 
-func (c Coordinate) Equals(o Coordinate) bool {
-	return c.Row == o.Row && c.Col == o.Col
-}
-
 func (c Coordinate) IsNil() bool {
 	return c.Row == -1 && c.Col == -1
 }
@@ -97,6 +93,14 @@ func (s *CoordinateSet) Plus(other *CoordinateSet) *CoordinateSet {
 	cs := s.Copy()
 	for v := range other.Map {
 		cs.Add(v)
+	}
+	return cs
+}
+
+func (s *CoordinateSet) Minus(other *CoordinateSet) *CoordinateSet {
+	cs := s.Copy()
+	for v := range other.Map {
+		cs.Del(v)
 	}
 	return cs
 }
@@ -284,20 +288,40 @@ type Island struct {
 	Reachable       *CoordinateSet
 }
 
+func (i *Island) Clone() *Island {
+	new := Island{
+		i.Members.Copy(),
+		i.CurrentSize,
+		i.TargetSize,
+		i.ReadyForBorders,
+		i.IslandType,
+		i.Root,
+		nil,
+		nil,
+	}
+	if new.IslandType == CLEAR_ISLAND {
+		//we can just copy the pointers because a possibility is never modified once it's in place.
+		new.Possibilities = make([]*CoordinateSet, len(i.Possibilities))
+		copy(new.Possibilities, i.Possibilities)
+		i.Reachable = i.Reachable.Copy()
+	}
+	return &new
+}
+
 func (i *Island) String() string {
 	if i.IslandType == WALL_ISLAND {
 		return i.Members.String() + fmt.Sprintf(" %d", i.CurrentSize)
 	}
-	if i.TargetSize <= i.CurrentSize {
+	if i.IsComplete() {
 		return i.Members.String() + fmt.Sprintf(" %d/%d", i.CurrentSize, i.TargetSize)
 	}
 	out := i.Members.String() + fmt.Sprintf(" %d/%d poss %d", i.CurrentSize, i.TargetSize, len(i.Possibilities))
-	if len(i.Possibilities) >= 10 {
+	if len(i.Possibilities) >= 1 {
 		return i.Members.String() + fmt.Sprintf(" %d/%d poss %d", i.CurrentSize, i.TargetSize, len(i.Possibilities))
 	}
 	out = out + " "
 	for idx, p := range i.Possibilities {
-		out += fmt.Sprintf("%d: %v ", idx, p)
+		out += fmt.Sprintf("%d: %v\n", idx, p.Minus(i.Members))
 	}
 	return out
 }
@@ -308,6 +332,10 @@ func (i *Island) Contains(c Coordinate) bool {
 
 func (i *Island) IsRooted() bool {
 	return !i.Root.IsNil()
+}
+
+func (i *Island) IsComplete() bool {
+	return i.TargetSize == i.CurrentSize
 }
 
 const CLEAR_ISLAND = 0
@@ -367,6 +395,28 @@ func BoardFromDef(def ProblemDef) *Board {
 		b.Islands = append(b.Islands, MakeRootedIsland(spec.Row, spec.Col, spec.Size))
 	}
 	return &b
+}
+
+func (b *Board) Clone() *Board {
+	Watch.Start("Clone board")
+	defer Watch.Stop("Clone board")
+	//merge the wall islands
+	new := BoardFromDef(b.Problem)
+	for r := 0; r < b.Problem.Height; r++ {
+		for c := 0; c < b.Problem.Width; c++ {
+			if b.Grid[r][c] == PAINTED {
+				new.Mark(r, c, b.Grid[r][c])
+			} else if b.Grid[r][c] == CLEAR {
+				new.Grid[r][c] = b.Grid[r][c]
+				new.TotalMarked++
+			}
+		}
+	}
+	new.Islands = make([]*Island, 0, len(b.Islands))
+	for _, i := range b.Islands {
+		new.Islands = append(new.Islands, i.Clone())
+	}
+	return new
 }
 
 func (b *Board) IslandAt(r int, c int) *Island {
@@ -443,7 +493,7 @@ func (i *Island) Absorb(other *Island) {
 	if i.TargetSize == 0 {
 		i.TargetSize = other.TargetSize
 		i.Root = other.Root
-		newPossibilities := make([]*CoordinateSet, len(i.Possibilities)+len(other.Possibilities))
+		newPossibilities := make([]*CoordinateSet, 0, len(i.Possibilities)+len(other.Possibilities))
 		if len(i.Possibilities) > 0 {
 			newPossibilities = append(newPossibilities, i.Possibilities...)
 		}
@@ -456,9 +506,6 @@ func (i *Island) Absorb(other *Island) {
 	}
 	cs := i.Members.Plus(other.Members)
 	i.Members = cs
-	if i.IslandType == CLEAR_ISLAND {
-		i.StripPossibilities()
-	}
 }
 
 func (b *Board) MergeAll() {
@@ -476,7 +523,9 @@ func (b *Board) MergeIslands() {
 			for j := i + 1; j < len(b.Islands); j++ {
 				if b.Islands[i].BordersIsland(b.Islands[j]) {
 					changed = true
+					//fmt.Printf("%v is absorbing %v\n", b.Islands[i], b.Islands[j])
 					b.Islands[i].Absorb(b.Islands[j])
+					//fmt.Printf("%v just absorbed!\n", b.Islands[i])
 					b.Islands[j] = b.Islands[len(b.Islands)-1]
 					b.Islands = b.Islands[:len(b.Islands)-1]
 					j--
@@ -484,6 +533,8 @@ func (b *Board) MergeIslands() {
 			}
 		}
 	}
+	b.PopulateUnrootedPossibilities()
+	b.StripAllPossibilities()
 }
 
 func (b *Board) MergeWallIslands() {
@@ -510,6 +561,10 @@ func (b *Board) MergeWallIslands() {
 }
 
 func (b *Board) MarkClear(r int, c int) bool {
+	if !b.AreInBounds(r, c) {
+		//TODO: error?
+		return false
+	}
 	if b.Grid[r][c] == CLEAR {
 		return false
 	}
@@ -521,12 +576,41 @@ func (b *Board) MarkClear(r int, c int) bool {
 	if i.TargetSize > 0 && i.CurrentSize == i.TargetSize {
 		i.ReadyForBorders = true
 	} else {
-		i.StripPossibilities()
+		b.StripPossibilities(i)
+	}
+	//Remove this possibility from all OTHER islands
+	if i.IsRooted() {
+		for _, o := range b.Islands {
+			if !o.IsRooted() || o.Root == i.Root {
+				continue
+			}
+			for idx := 0; idx < len(o.Possibilities); idx++ {
+				if o.Possibilities[idx].Contains(Coordinate{r, c}) {
+					RemoveFromSlice(&o.Possibilities, idx)
+					idx--
+				}
+			}
+		}
 	}
 	return true
 }
 
+func (b *Board) Mark(r int, c int, cell Cell) bool {
+	if cell == UNKNOWN {
+		return false
+	} else if cell == PAINTED {
+		return b.MarkPainted(r, c)
+	} else if cell == CLEAR {
+		return b.MarkClear(r, c)
+	}
+	return false
+}
+
 func (b *Board) MarkPainted(r int, c int) bool {
+	if !b.AreInBounds(r, c) {
+		//TODO: error?
+		return false
+	}
 	if b.Grid[r][c] == PAINTED {
 		return false
 	}
@@ -591,9 +675,11 @@ func (b *Board) StringDebug() string {
 	if len(b.Islands) > 0 {
 		s += "Islands:\n"
 		for _, island := range b.Islands {
-			if island.CurrentSize < island.TargetSize {
+			if !island.IsComplete() {
 				s += fmt.Sprintf("%v\n", island)
-				space *= len(island.Possibilities)
+				if island.CurrentSize < island.TargetSize && len(island.Possibilities) > 0 {
+					space *= len(island.Possibilities)
+				}
 			}
 		}
 	}
@@ -682,14 +768,8 @@ func BoardFromString(input string) *Board {
 	return &b
 }
 
-func (b *Board) CellNeighbors(c Coordinate) *CoordinateSet {
-	cs := EmptyCoordinateSet()
-	cs.Add(c)
-	return b.Neighbors(cs)
-}
-
-func (b *Board) Neighbors(c *CoordinateSet) *CoordinateSet {
-	rset := EmptyCoordinateSetSz(c.Size() * 3)
+func (b *Board) PlusMyNeighbors(c *CoordinateSet) *CoordinateSet {
+	rset := c.Copy()
 	for m := range c.Map {
 		for dx := -1; dx < 2; dx += 2 {
 			newCoord := m.Translate(dx, 0)
@@ -703,26 +783,6 @@ func (b *Board) Neighbors(c *CoordinateSet) *CoordinateSet {
 		}
 
 	}
-	rset.DelAll(c)
-	return rset
-}
-
-func (b *Board) NeighborsExcept(c *CoordinateSet, excl *CoordinateSet) *CoordinateSet {
-	rset := EmptyCoordinateSetSz(c.Size() * 3)
-	for m := range c.Map {
-		for dx := -1; dx < 2; dx += 2 {
-			newCoord := m.Translate(dx, 0)
-			if b.IsInBounds(newCoord) && !excl.Contains(newCoord) {
-				rset.Add(newCoord)
-			}
-			newCoord = m.Translate(0, dx)
-			if b.IsInBounds(newCoord) && !excl.Contains(newCoord) {
-				rset.Add(newCoord)
-			}
-		}
-
-	}
-	rset.DelAll(c)
 	return rset
 }
 
@@ -773,29 +833,19 @@ func (b *Board) TouchesABorder(cs *CoordinateSet) bool {
 	return false
 }
 
-func (b *Board) RebuildIslands() {
-	b.Islands = b.Islands[:0]
-	b.WallIslands = b.WallIslands[:0]
-	for r := 0; r < b.Problem.Height; r++ {
-		for c := 0; c < b.Problem.Width; c++ {
-			switch b.Grid[r][c] {
-			case PAINTED:
-				b.WallIslands = append(b.WallIslands, MakeWallIsland(r, c))
-			case CLEAR:
-				var island *Island = nil
-				for _, spec := range b.Problem.IslandSpecs {
-					if spec.Row == r && spec.Col == c {
-						island = MakeRootedIsland(r, c, spec.Size)
-					}
-				}
-				if island == nil {
-					island = MakeUnrootedIsland(r, c)
-				}
-				b.Islands = append(b.Islands, island)
+func (b *Board) IsPool(rTL int, cTL int) bool {
+	if !b.AreInBounds(rTL+1, cTL+1) {
+		return false
+	}
+	painted := 0
+	for dr := 0; dr < 2; dr++ {
+		for dc := 0; dc < 2; dc++ {
+			if b.Grid[rTL+dr][cTL+dc] == PAINTED {
+				painted++
 			}
 		}
 	}
-	b.MergeAll()
+	return painted == 4
 }
 
 func (b *Board) IsSolved() (bool, error) {
@@ -804,22 +854,11 @@ func (b *Board) IsSolved() (bool, error) {
 			if b.Grid[r][c] == UNKNOWN {
 				return false, fmt.Errorf("cell %v is unknown", Coordinate{r, c})
 			}
-			if b.AreInBounds(r+1, c+1) {
-				painted := 0
-				for dr := 0; dr < 2; dr++ {
-					for dc := 0; dc < 2; dc++ {
-						if b.Grid[r+dr][c+dc] == PAINTED {
-							painted++
-						}
-					}
-				}
-				if painted == 4 {
-					return false, fmt.Errorf("two-by-two black square at %v", Coordinate{r, c})
-				}
+			if b.IsPool(r, c) {
+				return false, fmt.Errorf("two-by-two pool at %v", Coordinate{r, c})
 			}
 		}
 	}
-	b.RebuildIslands()
 	if len(b.WallIslands) > 1 {
 		return false, fmt.Errorf("walls are not all joined")
 	}
@@ -850,29 +889,6 @@ func (b *Board) CountNumberedIslands(c *CoordinateSet) int {
 	return ct
 }
 
-func (b *Board) BordersMultipleRootedIslands(c Coordinate) bool {
-	ct := 0
-	for _, i := range b.Islands {
-		if i.TargetSize > 0 && i.BordersCell(c) {
-			ct++
-			if ct > 1 {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (b *Board) BorderingIslands(c Coordinate) []*Island {
-	res := make([]*Island, 0)
-	for _, i := range b.Islands {
-		if i.BordersCell(c) {
-			res = append(res, i)
-		}
-	}
-	return res
-}
-
 func GetBoardFromFile(f string) *Board {
 	data, err := os.ReadFile(f)
 	if err != nil {
@@ -882,28 +898,18 @@ func GetBoardFromFile(f string) *Board {
 	return BoardFromString(string(data))
 }
 
-func Solve(board *Board) {
-	start := time.Now()
-	fmt.Printf("Started solving: %s\n", start)
-	fmt.Printf("Initial:\n%s\n", board.StringDebug())
-	board.AutoSolve(board)
-	fmt.Printf("Board:\n%s\n", board.StringDebug())
-	fmt.Printf("Finished solving: %s (duration %.4f)\n", time.Now(), float64(time.Now().UnixNano()-start.UnixNano())/1000000000.0)
-	fmt.Printf("Watch: %v\n", Watch.Results())
+func RemoveFromSlice[T Island | CoordinateSet](s *[]*T, i int) {
+	oldLen := len(*s)
+	(*s)[i] = (*s)[oldLen-1]
+	*s = (*s)[:oldLen-1]
 }
 
 func main() {
-	//b := GetBoardFromFile("problem1.txt")
-	//Solve(b)
-	//TryParseFile("board2.txt")
-	//Solve(GetBoardFromFile("problem2.txt"))
-	//Solve(GetBoardFromFile("problem3.txt"))
-	b := GetBoardFromFile("problem3.txt") //this problem will be helped by
-	fmt.Printf("Have board!")
+	b := GetBoardFromFile("problem3.txt")
 
 	startNano := time.Now().UnixNano()
 
-	bc := GetBoardFromFile("problem2-solved.txt")
+	bc := GetBoardFromFile("problem3-solved.txt")
 	fmt.Printf("Got board BC: %v\n", bc)
 	bc.PopulateIslandPossibilities()
 	fmt.Printf("BC: %v\n", bc)
@@ -911,15 +917,14 @@ func main() {
 		fmt.Printf("Not solved %v\n", err)
 		os.Exit(0)
 	}
-	b.AutoSolve(nil)
+	b.InitSolve()
+	b.AutoSolve(bc, false)
 	fmt.Printf("%v\n", b.StringDebug())
-	fmt.Println("Dunzo")
 	stopNano := time.Now().UnixNano()
 	fmt.Println(Watch.Results())
 	fmt.Printf("Total duration: %.4f\n", float64(stopNano-startNano)/1000000000.0)
 	fmt.Println(http.ListenAndServe("localhost:6060", nil))
-	fmt.Println("Dunzo again")
 }
 
-//TODO: for each possibility, check if any nearby island cannot handle consumption of the possibility and its neighbors.
-//TODO: fork off a hypothetical board?
+// TODO: have group versions of RemoveFromPossibility and MarkPainted - only one trip through the possibility sets
+// TODO: keep a running struct of diagonally merged islands (would save over 20% of problem 3 time)

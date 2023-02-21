@@ -7,25 +7,24 @@ import (
 
 func (b *Board) AddIslandBorders() bool {
 	Watch.Start("AIB")
+	defer Watch.Stop("AIB")
 	didChange := false
 	for _, island := range b.Islands {
 		if island.ReadyForBorders {
-			fmt.Printf("It's ready")
 			targets := b.NeighborsWith(island.Members, UNKNOWN)
-			fmt.Printf("Have targets sz %d\n", targets.Size())
 			for coord := range targets.Map {
 				didChange = b.MarkPainted(coord.Row, coord.Col) || didChange
 			}
 			island.ReadyForBorders = false
 		}
 	}
-	Watch.Stop("AIB")
 	return didChange
 }
 
 // TODO: liberty data structure? running slices?
 func (b *Board) ExtendIslandsOneLiberty() bool {
 	Watch.Start("EI1")
+	defer Watch.Stop("EI1")
 	didChange := false
 	changed := true
 	for changed {
@@ -37,22 +36,20 @@ func (b *Board) ExtendIslandsOneLiberty() bool {
 			lib := b.Liberties(island)
 			if lib.Size() == 1 {
 				c := lib.OneMember()
-				fmt.Printf("Extending island %v to %v\n", island, c)
 				result := b.MarkClear(c.Row, c.Col)
 				didChange = didChange || result
 				changed = changed || result
-				fmt.Printf("Island at %v is now %v\n", c, b.IslandAt(c.Row, c.Col))
 				break
 			}
 		}
 	}
-	Watch.Stop("EI1")
 	return didChange
 }
 
 // TODO: liberty data structure? running slices?
 func (b *Board) ExtendWallIslandsOneLiberty() bool {
 	Watch.Start("EW1")
+	defer Watch.Stop("EW1")
 	didChange := false
 	changed := true
 outerLoop:
@@ -75,7 +72,6 @@ outerLoop:
 			}
 		}
 	}
-	Watch.Stop("EW1")
 	return didChange
 }
 
@@ -84,6 +80,7 @@ outerLoop:
 // liberty to two different islands?
 func (b *Board) PaintTwoBorderedCells() bool {
 	Watch.Start("P2B")
+	defer Watch.Stop("P2B")
 	didChange := false
 	for ri, row := range b.Grid {
 		for ci, col := range row {
@@ -107,7 +104,6 @@ func (b *Board) PaintTwoBorderedCells() bool {
 			}
 		}
 	}
-	Watch.Stop("P2B")
 	return didChange
 }
 
@@ -154,6 +150,7 @@ func (b *Board) WallDfsRec(members *CoordinateSet, necessary *CoordinateSet) {
 // with necessary as a subset of the possibility
 func (b *Board) ExtendWallIslands() bool {
 	Watch.Start("EWI")
+	defer Watch.Stop("EWI")
 	if len(b.WallIslands) < 2 {
 		return false
 	}
@@ -167,12 +164,12 @@ func (b *Board) ExtendWallIslands() bool {
 			didChange = b.MarkPainted(target.Row, target.Col) || didChange
 		}
 	}
-	Watch.Stop("EWI")
 	return didChange
 }
 
 func (b *Board) FillElbows() bool {
 	Watch.Start("FEL")
+	defer Watch.Stop("FEL")
 	//TODO: make more efficient with overlapping columns that we save between inner loop iterations?
 	didChange := false
 	for r := 0; r < b.Problem.Height-1; r++ {
@@ -199,11 +196,11 @@ func (b *Board) FillElbows() bool {
 			}
 		}
 	}
-	Watch.Stop("FEL")
 	return didChange
 }
 
 func Check(b *Board, soln *Board) {
+	abort := false
 	if soln == nil {
 		return
 	}
@@ -214,78 +211,184 @@ func Check(b *Board, soln *Board) {
 			}
 			if b.Grid[r][c] != soln.Grid[r][c] {
 				fmt.Printf("ERROR AT %v, %v\n%v\n", r, c, b)
-				os.Exit(0)
+				abort = true
 			}
 		}
 	}
+	for _, si := range soln.Islands {
+		myI := b.IslandAt(si.Root.Row, si.Root.Col)
+		found := false
+		if myI.Members.Equals(si.Members) {
+			found = true
+		}
+		for _, p := range myI.Possibilities {
+			if p.Equals(si.Members) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			fmt.Printf("ERROR on island %v (correct is %v)\n", myI, si)
+			for _, p := range myI.Possibilities {
+				fmt.Printf("Poss %v\n", p)
+			}
+			abort = true
+
+		} else {
+			//fmt.Printf("Island %v is okay!! %v is in there!\n", myI, si.Members)
+		}
+	}
+	if abort {
+		os.Exit(0)
+	}
 }
 
-func (b *Board) AutoSolve(sol *Board) bool {
+func (b *Board) FalsifyGuess(r int, c int, cell Cell) error {
+	hypo := b.Clone()
+	hypo.Mark(r, c, cell)
+	hypo.AutoSolve(nil, true)
+	return hypo.ContainsError()
+}
+
+func (b *Board) MakeAGuess(neighborsOnly bool) bool {
+	for r := 0; r < b.Problem.Height; r++ {
+		for c := 0; c < b.Problem.Width; c++ {
+			if b.Grid[r][c] != UNKNOWN {
+				continue
+			}
+			if neighborsOnly && !b.HasNeighborWith(SingleCoordinateSet(Coordinate{r, c}), CLEAR) {
+				continue
+			}
+			e := b.FalsifyGuess(r, c, CLEAR)
+			if e != nil {
+				b.MarkPainted(r, c)
+				fmt.Printf("Successfully guessed! {r%d, c%d} was painted! error %v\n", r, c, e)
+				fmt.Printf("Stopwatch:\n%s", Watch.Results())
+				return true
+			}
+			e = b.FalsifyGuess(r, c, PAINTED)
+			if e != nil {
+				fmt.Printf("Successfully guessed! {r%d, c%d} was clear! error %v\n", r, c, e)
+				b.MarkClear(r, c)
+				fmt.Printf("Stopwatch:\n%s", Watch.Results())
+				return true
+			}
+		}
+	}
+	fmt.Printf("Unsuccessfully guessed.\n")
+	return false
+}
+
+func (b *Board) InitSolve() {
 	b.PaintTwoBorderedCells()
 	b.ExtendIslandsOneLiberty()
 	b.AddIslandBorders()
 	b.PopulateIslandPossibilities()
+}
+
+func (b *Board) AutoSolve(sol *Board, guess bool) bool {
+	Watch.Start("AutoSolve")
 	changed := true
+	chTmp := false
 	for changed {
 		changed = false
-		changed = b.PaintTwoBorderedCells() || changed
-		fmt.Printf("1 painted 2bc\n%v\n", b.String())
-		Check(b, sol)
-		changed = b.ExtendIslandsOneLiberty() || changed
-		fmt.Printf("2 extended 1lib\n%v\n", b.String())
-		Check(b, sol)
-		changed = b.AddIslandBorders() || changed
-		fmt.Printf("3 added borders\n%v\n", b.String())
-		Check(b, sol)
-		//changed = b.PaintUnreachablesSlow() || changed
-		changed = b.EliminateWallSplitters() || changed
-		fmt.Printf("3.5 removed splitters\n%v\n", b.String())
-		//changed = b.PaintUnreachablesSlow() || changed
-		//changed = b.PaintUnreachablesFast() || changed
-		//changed2 := b.PaintUnreachablesSlow()
-		b.RepopulateIslandReachables()
-		changed2 := b.PaintUnreachablesFast()
-		changed = changed2 || changed
-		fmt.Printf("4 painted URslow\n%v\n", b.String())
-		if changed2 {
-			fmt.Println("Changed2!!!!!!")
+		chTmp = b.PaintTwoBorderedCells()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("1 painted 2bc %v\n%v\n", changed, b.StringDebug())
 		}
 		Check(b, sol)
-		changed = b.ExtendWallIslandsOneLiberty() || changed
-		fmt.Printf("5 extended WI1\n%v\n", b.String())
+		chTmp = b.ExtendIslandsOneLiberty()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("2 extended 1lib %v\n%v\n", changed, b.StringDebug())
+		}
 		Check(b, sol)
-		//changed = b.ExtendIslands() || changed
-		//changed = b.ExtendWallIslandsOneLiberty() || changed
-		//changed = b.ExtendIslands() || changed
+		chTmp = b.AddIslandBorders()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("3 added borders %v\n%v\n", changed, b.StringDebug())
+		}
+		Check(b, sol)
 
-		changed = b.ConnectUnrootedIslands() || changed
-		fmt.Printf("5.5 connected unrooted\n%v\n", b.String())
-		changed = b.ConnectTwoByOnes() || changed
-		fmt.Printf("5.6 connected 2x1s\n%v\n", b.String())
-		changed = b.FillIslandNecessaries() || changed
-		fmt.Printf("6 filled necessaries\n%v\n", b.String())
+		chTmp = b.EliminateWallSplitters()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("3.5 removed splitters %v\n%v\n", changed, b.StringDebug())
+		}
+
+		b.PopulateAllReachables()
+		chTmp := b.PaintUnreachables()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("4 painted URslow %v\n%v\n", changed, b.StringDebug())
+		}
 		Check(b, sol)
-		changed = b.AddIslandBorders() || changed
-		fmt.Printf("7 added borders\n%v\n", b.String())
+		b.StripAllPossibilities()
+		chTmp = b.ExtendWallIslandsOneLiberty()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("5 extended WI1 %v\n%v\n", changed, b.StringDebug())
+		}
 		Check(b, sol)
-		changed = b.FillElbows() || changed
-		fmt.Printf("8 filled elbows\n%v\n", b.String())
+		chTmp = b.ConnectUnrootedIslands()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("5.5 connected unrooted %v\n%v\n", changed, b.StringDebug())
+		}
+		chTmp = b.FindSinglePoolPreventers()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("5.6 connected 2x1s %v\n%v\n", changed, b.StringDebug())
+		}
+		chTmp = b.EliminateIntolerables()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("5.7 eliminated intolerables %v\n%v\n", changed, b.StringDebug())
+		}
+		chTmp = b.FillIslandNecessaries()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("6 filled necessaries %v\n%v\n", changed, b.StringDebug())
+		}
 		Check(b, sol)
-		//changed = b.PreventWallSplits() || changed
-		changed = b.AddIslandBorders() || changed
-		fmt.Printf("9 added borders\n%v\n", b.String())
+		chTmp = b.AddIslandBorders()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("7 added borders %v\n%v\n", changed, b.StringDebug())
+		}
 		Check(b, sol)
-		changed = b.ExtendWallIslands() || changed
-		fmt.Printf("10 extended WI\n%v\n", b.String())
+		chTmp = b.FillElbows()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("8 filled elbows %v\n%v\n", changed, b.StringDebug())
+		}
+		Check(b, sol)
+		chTmp = b.AddIslandBorders()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("9 added borders %v\n%v\n", changed, b.StringDebug())
+		}
+		Check(b, sol)
+		chTmp = b.ExtendWallIslands()
+		changed = changed || chTmp
+		if chTmp && false {
+			fmt.Printf("10 extended WI %v\n%v\n", changed, b.StringDebug())
+		}
 		Check(b, sol)
 		if b.TotalMarked == b.Problem.Width*b.Problem.Height {
 			break
 		}
-		if !changed {
-			//fmt.Printf("*************RESCUE")
-			//changed = b.PaintUnreachablesSlow()
+		if !changed && !guess {
+			fmt.Println("Making a guess")
+			changed = b.MakeAGuess(true) || changed
+		}
+		if !changed && !guess {
+			fmt.Println("Making a guess ANYWHERE")
+			changed = b.MakeAGuess(false) || changed
 		}
 	}
-	fmt.Printf("Stopwatch:\n%s", Watch.Results())
+	Watch.Stop("AutoSolve")
+	//fmt.Printf("Stopwatch:\n%s", Watch.Results())
 	return true
 }

@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 // Would the proposed CoordinateSet, if entered in the problem as an island,
 // necessarily force the walls to be split into two (or more) wall islands?
 func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
@@ -8,6 +10,7 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 
 	//Start by merging the coordinate set with the CSes of all islands it
 	//borders diagnoally
+	Watch.Start("Merge for set splitting")
 	islands := make([]*Island, len(b.Islands))
 	mergedIslands := cs.Copy()
 	copy(islands, b.Islands)
@@ -20,6 +23,7 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 			idx--
 		}
 	}
+	Watch.Stop("Merge for set splitting")
 
 	//To detect a wall-splitting island, we can visit each cell on the puzzle's
 	//border in turn, starting at {0,0} and continuing clockwise. As we visit
@@ -87,18 +91,20 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	//duplciative with the border walking algorithm implemented above.  However, leaving the one above
 	//intact actually speeds up the code by detecting some wall splitters more quickly.
 
-	//mergedBorder := b.Neighbors(mergedIslands)
 	reachability := NewGrid(b.Problem.Width, b.Problem.Height)
 	const UNK = 0
 	const BLOCKED = 1
 	const COVERED = 2
 	unkCt := b.Problem.Width * b.Problem.Height
+	for c := range mergedIslands.Map {
+		reachability[c.Row][c.Col] = BLOCKED
+		unkCt--
+	}
 	for r := 0; r < b.Problem.Height; r++ {
 		for c := 0; c < b.Problem.Width; c++ {
 			coord = Coordinate{r, c}
-			if mergedIslands.Contains(coord) {
-				reachability[r][c] = BLOCKED
-				unkCt--
+			if reachability[r][c] == BLOCKED {
+				continue
 			} else if b.IsOnEdge(coord) {
 				reachability[r][c] = COVERED
 				unkCt--
@@ -129,4 +135,25 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	}
 
 	return unkCt > 0
+}
+
+func (b *Board) ContainsError() error {
+	for r := 0; r < b.Problem.Height; r++ {
+		for c := 0; c < b.Problem.Width; c++ {
+			if b.IsPool(r, c) {
+				return fmt.Errorf("two-by-two pool at %v", Coordinate{r, c})
+			}
+		}
+	}
+	for _, i := range b.Islands {
+		if i.IsComplete() {
+			continue
+		}
+		if i.IsRooted() && i.CurrentSize > i.TargetSize {
+			return fmt.Errorf("island at %v is too big (has size %d; should be %d)", i.Root, i.CurrentSize, i.TargetSize)
+		} else if len(i.Possibilities) == 0 {
+			return fmt.Errorf("island at %v has zero possibilities", i.Members.OneMember())
+		}
+	}
+	return nil
 }
