@@ -11,20 +11,15 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	//Start by merging the coordinate set with the CSes of all islands it
 	//borders diagnoally
 	Watch.Start("Merge for set splitting")
-	islands := make([]*Island, len(b.Islands))
 	mergedIslands := cs.Copy()
-	copy(islands, b.Islands)
-	for idx := 0; idx < len(islands); idx++ {
-		if islands[idx].BordersSetDiagonally(mergedIslands) {
-			mergedIslands.AddAll(islands[idx].Members)
-			oldLen := len(islands)
-			islands[idx] = islands[oldLen-1]
-			islands = islands[:oldLen-1]
-			idx--
+	for _, s := range b.DiagonalSets {
+		if s.BordersSetDiagonally(mergedIslands) {
+			mergedIslands.AddAll(s)
 		}
 	}
 	Watch.Stop("Merge for set splitting")
 
+	Watch.Start("Border walk")
 	//To detect a wall-splitting island, we can visit each cell on the puzzle's
 	//border in turn, starting at {0,0} and continuing clockwise. As we visit
 	//each cell, we check whether the cell is part of the proposed coordinate
@@ -64,6 +59,7 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 		if isMember != wasLastMember {
 			changes++
 			if changes > 2 {
+				Watch.Stop("Border walk")
 				return true
 			}
 			wasLastMember = isMember
@@ -73,7 +69,9 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 			break
 		}
 	}
+	Watch.Stop("Border walk")
 
+	Watch.Start("Interior wall isolation")
 	//To detect an island that would isolate an interior wall island - e.g., this:
 	//
 	// ___...___
@@ -133,6 +131,7 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 			break
 		}
 	}
+	Watch.Stop("Interior wall isolation")
 
 	return unkCt > 0
 }

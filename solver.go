@@ -263,14 +263,14 @@ func (b *Board) MakeAGuess(neighborsOnly bool) bool {
 			if e != nil {
 				b.MarkPainted(r, c)
 				fmt.Printf("Successfully guessed! {r%d, c%d} was painted! error %v\n", r, c, e)
-				fmt.Printf("Stopwatch:\n%s", Watch.Results())
+				//fmt.Printf("Stopwatch:\n%s", Watch.Results())
 				return true
 			}
 			e = b.FalsifyGuess(r, c, PAINTED)
 			if e != nil {
 				fmt.Printf("Successfully guessed! {r%d, c%d} was clear! error %v\n", r, c, e)
 				b.MarkClear(r, c)
-				fmt.Printf("Stopwatch:\n%s", Watch.Results())
+				//fmt.Printf("Stopwatch:\n%s", Watch.Results())
 				return true
 			}
 		}
@@ -380,11 +380,12 @@ func (b *Board) AutoSolve(sol *Board, guess bool) bool {
 			break
 		}
 		if !changed && !guess {
-			fmt.Println("Making a guess")
+			fmt.Printf("Making a guess with %d filled\n%s\n", b.TotalMarked, b.StringDebug())
+
 			changed = b.MakeAGuess(true) || changed
 		}
 		if !changed && !guess {
-			fmt.Println("Making a guess ANYWHERE")
+			fmt.Printf("Making a guess ANYWHERE with %d filled\n%s\n", b.TotalMarked, b.StringDebug())
 			changed = b.MakeAGuess(false) || changed
 		}
 	}

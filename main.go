@@ -372,11 +372,12 @@ func (p ProblemDef) String() string {
 }
 
 type Board struct {
-	Problem     ProblemDef
-	Grid        [][]Cell
-	Islands     []*Island
-	WallIslands []*Island
-	TotalMarked int
+	Problem      ProblemDef
+	Grid         [][]Cell
+	Islands      []*Island
+	WallIslands  []*Island
+	DiagonalSets []*CoordinateSet
+	TotalMarked  int
 }
 
 func NewGrid(w int, h int) [][]Cell {
@@ -388,11 +389,12 @@ func NewGrid(w int, h int) [][]Cell {
 }
 
 func BoardFromDef(def ProblemDef) *Board {
-	b := Board{def, NewGrid(def.Width, def.Height), make([]*Island, 0), make([]*Island, 0), 0}
+	b := Board{def, NewGrid(def.Width, def.Height), make([]*Island, 0), make([]*Island, 0), make([]*CoordinateSet, 0), 0}
 	for _, spec := range b.Problem.IslandSpecs {
 		b.Grid[spec.Row][spec.Col] = CLEAR
 		b.TotalMarked++
 		b.Islands = append(b.Islands, MakeRootedIsland(spec.Row, spec.Col, spec.Size))
+		b.DiagonalSets = append(b.DiagonalSets, SingleCoordinateSet(Coordinate{spec.Row, spec.Col}))
 	}
 	return &b
 }
@@ -510,6 +512,7 @@ func (i *Island) Absorb(other *Island) {
 
 func (b *Board) MergeAll() {
 	b.MergeIslands()
+	b.MergeDiagonalSets()
 	b.MergeWallIslands()
 }
 
@@ -535,6 +538,25 @@ func (b *Board) MergeIslands() {
 	}
 	b.PopulateUnrootedPossibilities()
 	b.StripAllPossibilities()
+}
+
+func (b *Board) MergeDiagonalSets() {
+	Watch.Start("MergeDiagonalSets")
+	defer Watch.Stop("MergeDiagonalSets")
+	changed := true
+	for changed {
+		changed = false
+		for i := 0; i < len(b.DiagonalSets); i++ {
+			for j := i + 1; j < len(b.DiagonalSets); j++ {
+				if b.DiagonalSets[i].BordersSetDiagonally(b.DiagonalSets[j]) {
+					changed = true
+					b.DiagonalSets[i].AddAll(b.DiagonalSets[j])
+					RemoveFromSlice(&b.DiagonalSets, j)
+					j--
+				}
+			}
+		}
+	}
 }
 
 func (b *Board) MergeWallIslands() {
@@ -571,7 +593,9 @@ func (b *Board) MarkClear(r int, c int) bool {
 	b.Grid[r][c] = CLEAR
 	b.TotalMarked++
 	b.Islands = append(b.Islands, MakeUnrootedIsland(r, c))
+	b.DiagonalSets = append(b.DiagonalSets, SingleCoordinateSet(Coordinate{r, c}))
 	b.MergeIslands()
+	b.MergeDiagonalSets()
 	i := b.IslandAt(r, c)
 	if i.TargetSize > 0 && i.CurrentSize == i.TargetSize {
 		i.ReadyForBorders = true
@@ -682,6 +706,10 @@ func (b *Board) StringDebug() string {
 				}
 			}
 		}
+		s += "Diagonal sets:\n"
+		for _, set := range b.DiagonalSets {
+			s += fmt.Sprintf("%v\n", set)
+		}
 	}
 	solved, err := b.IsSolved()
 	s += fmt.Sprintf("Solved: %v", solved)
@@ -743,11 +771,12 @@ func DefFromString(input string) ProblemDef {
 
 func BoardFromString(input string) *Board {
 	def := DefFromString(input)
-	b := Board{def, NewGrid(def.Width, def.Height), make([]*Island, 0), make([]*Island, 0), 0}
+	b := Board{def, NewGrid(def.Width, def.Height), make([]*Island, 0), make([]*Island, 0), make([]*CoordinateSet, 0), 0}
 	for _, spec := range b.Problem.IslandSpecs {
 		b.Grid[spec.Row][spec.Col] = CLEAR
 		b.TotalMarked++
 		b.Islands = append(b.Islands, MakeRootedIsland(spec.Row, spec.Col, spec.Size))
+		b.DiagonalSets = append(b.DiagonalSets, SingleCoordinateSet(Coordinate{spec.Row, spec.Col}))
 	}
 	lines := make([]string, 0)
 	for _, txt := range strings.Split(input, "\n") {
@@ -909,16 +938,18 @@ func main() {
 
 	startNano := time.Now().UnixNano()
 
-	bc := GetBoardFromFile("problem3-solved.txt")
-	fmt.Printf("Got board BC: %v\n", bc)
-	bc.PopulateIslandPossibilities()
-	fmt.Printf("BC: %v\n", bc)
-	if ok, err := bc.IsSolved(); !ok {
-		fmt.Printf("Not solved %v\n", err)
-		os.Exit(0)
-	}
+	//bc := GetBoardFromFile("problem3-solved.txt")
+	//fmt.Printf("Got board BC: %v\n", bc)
+	//bc.PopulateIslandPossibilities()
+	//fmt.Printf("BC: %v\n", bc)
+	/*
+		if ok, err := bc.IsSolved(); !ok {
+			fmt.Printf("Not solved %v\n", err)
+			os.Exit(0)
+		}
+	*/
 	b.InitSolve()
-	b.AutoSolve(bc, false)
+	b.AutoSolve(nil, false)
 	fmt.Printf("%v\n", b.StringDebug())
 	stopNano := time.Now().UnixNano()
 	fmt.Println(Watch.Results())
