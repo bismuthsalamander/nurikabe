@@ -11,10 +11,22 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	//Start by merging the coordinate set with the CSes of all islands it
 	//borders diagnoally
 	Watch.Start("Merge for set splitting")
-	mergedIslands := cs.Copy()
+	reachability := NewGrid(b.Problem.Width, b.Problem.Height)
+	const UNK = 0
+	const BLOCKED = 1
+	const COVERED = 2
+	unkCt := b.Problem.Size
+
+	for c := range cs.Map {
+		reachability[c.Row][c.Col] = BLOCKED
+		unkCt--
+	}
 	for _, s := range b.DiagonalSets {
-		if s.BordersSetDiagonally(mergedIslands) {
-			mergedIslands.AddAll(s)
+		if s.BordersSetDiagonally(cs) {
+			for c := range s.Map {
+				reachability[c.Row][c.Col] = BLOCKED
+				unkCt--
+			}
 		}
 	}
 	Watch.Stop("Merge for set splitting")
@@ -27,7 +39,7 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	//from the previous cell.  If we have at least three changes, then the set
 	//splits the walls into multiple islands. (Note that there must be an even
 	//total number of changes!)
-	wasLastMember := mergedIslands.Contains(Coordinate{0, 0})
+	wasLastMember := reachability[0][0] == BLOCKED
 	coord := Coordinate{0, 1}
 
 	//function that walks clockwise around the puzzle's border; easier to write
@@ -55,7 +67,7 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	}
 	changes := 0
 	for {
-		isMember := mergedIslands.Contains(coord)
+		isMember := reachability[coord.Row][coord.Col] == BLOCKED
 		if isMember != wasLastMember {
 			changes++
 			if changes > 2 {
@@ -89,15 +101,6 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	//duplciative with the border walking algorithm implemented above.  However, leaving the one above
 	//intact actually speeds up the code by detecting some wall splitters more quickly.
 
-	reachability := NewGrid(b.Problem.Width, b.Problem.Height)
-	const UNK = 0
-	const BLOCKED = 1
-	const COVERED = 2
-	unkCt := b.Problem.Size
-	for c := range mergedIslands.Map {
-		reachability[c.Row][c.Col] = BLOCKED
-		unkCt--
-	}
 	for r := 0; r < b.Problem.Height; r++ {
 		for c := 0; c < b.Problem.Width; c++ {
 			coord = Coordinate{r, c}
