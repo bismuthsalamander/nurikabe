@@ -11,20 +11,19 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	//Start by merging the coordinate set with the CSes of all islands it
 	//borders diagnoally
 	Watch.Start("Merge for set splitting")
-	reachability := NewGrid(b.Problem.Width, b.Problem.Height)
-	const UNK = 0
-	const BLOCKED = 1
-	const COVERED = 2
+	b.ClearScratchGrid()
+	const BLOCKED = PAINTED
+	const COVERED = CLEAR
 	unkCt := b.Problem.Size
 
 	for c := range cs.Map {
-		reachability[c.Row][c.Col] = BLOCKED
+		b.ScratchGrid[c.Row][c.Col] = BLOCKED
 		unkCt--
 	}
 	for _, s := range b.DiagonalSets {
 		if s.BordersSetDiagonally(cs) {
 			for c := range s.Map {
-				reachability[c.Row][c.Col] = BLOCKED
+				b.ScratchGrid[c.Row][c.Col] = BLOCKED
 				unkCt--
 			}
 		}
@@ -39,7 +38,7 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	//from the previous cell.  If we have at least three changes, then the set
 	//splits the walls into multiple islands. (Note that there must be an even
 	//total number of changes!)
-	wasLastMember := reachability[0][0] == BLOCKED
+	wasLastMember := b.ScratchGrid[0][0] == BLOCKED
 	coord := Coordinate{0, 1}
 
 	//function that walks clockwise around the puzzle's border; easier to write
@@ -67,7 +66,7 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	}
 	changes := 0
 	for {
-		isMember := reachability[coord.Row][coord.Col] == BLOCKED
+		isMember := b.ScratchGrid[coord.Row][coord.Col] == BLOCKED
 		if isMember != wasLastMember {
 			changes++
 			if changes > 2 {
@@ -104,13 +103,13 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	for r := 0; r < b.Problem.Height; r++ {
 		for c := 0; c < b.Problem.Width; c++ {
 			coord = Coordinate{r, c}
-			if reachability[r][c] == BLOCKED {
+			if b.ScratchGrid[r][c] == BLOCKED {
 				continue
 			} else if b.IsOnEdge(coord) {
-				reachability[r][c] = COVERED
+				b.ScratchGrid[r][c] = COVERED
 				unkCt--
 			} else {
-				reachability[r][c] = UNK
+				b.ScratchGrid[r][c] = UNKNOWN
 			}
 		}
 	}
@@ -120,11 +119,11 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 		keepGoing = false
 		for r := 1; r < b.Problem.Height-1; r++ {
 			for c := 1; c < b.Problem.Width-1; c++ {
-				if reachability[r][c] != UNK {
+				if b.ScratchGrid[r][c] != UNKNOWN {
 					continue
 				}
-				if reachability[r-1][c] == COVERED || reachability[r+1][c] == COVERED || reachability[r][c-1] == COVERED || reachability[r][c+1] == COVERED {
-					reachability[r][c] = COVERED
+				if b.ScratchGrid[r-1][c] == COVERED || b.ScratchGrid[r+1][c] == COVERED || b.ScratchGrid[r][c-1] == COVERED || b.ScratchGrid[r][c+1] == COVERED {
+					b.ScratchGrid[r][c] = COVERED
 					unkCt--
 					keepGoing = true
 				}

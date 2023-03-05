@@ -209,16 +209,16 @@ func (s *Solver) PaintUnreachables() bool {
 	defer Watch.Stop("PaintUnreachables")
 	const UNREACHABLE = 0
 	const REACHABLE = 1
-	reachability := NewGrid(s.b.Problem.Width, s.b.Problem.Height)
+	s.b.ClearScratchGrid()
 	for _, i := range s.b.Islands {
 		for r := range i.Reachable.Map {
-			reachability[r.Row][r.Col] = REACHABLE
+			s.b.ScratchGrid[r.Row][r.Col] = REACHABLE
 		}
 	}
 	changed := false
 	for r := 0; r < s.b.Problem.Height; r++ {
 		for c := 0; c < s.b.Problem.Width; c++ {
-			if s.b.Grid[r][c] == UNKNOWN && reachability[r][c] == UNREACHABLE {
+			if s.b.Grid[r][c] == UNKNOWN && s.b.ScratchGrid[r][c] == UNREACHABLE {
 				changed = s.MarkPainted(r, c) || changed
 			}
 		}

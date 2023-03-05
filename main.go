@@ -376,6 +376,7 @@ func (p ProblemDef) String() string {
 type Board struct {
 	Problem      ProblemDef
 	Grid         [][]Cell
+	ScratchGrid  [][]Cell
 	Islands      []*Island
 	WallIslands  []*Island
 	DiagonalSets []*CoordinateSet
@@ -391,7 +392,7 @@ func NewGrid(w int, h int) [][]Cell {
 }
 
 func BoardFromDef(def ProblemDef) *Board {
-	b := Board{def, NewGrid(def.Width, def.Height), make([]*Island, 0), make([]*Island, 0), make([]*CoordinateSet, 0), 0}
+	b := Board{def, NewGrid(def.Width, def.Height), NewGrid(def.Width, def.Height), make([]*Island, 0), make([]*Island, 0), make([]*CoordinateSet, 0), 0}
 	for _, spec := range b.Problem.IslandSpecs {
 		b.Grid[spec.Row][spec.Col] = CLEAR
 		b.TotalMarked++
@@ -399,6 +400,14 @@ func BoardFromDef(def ProblemDef) *Board {
 		b.DiagonalSets = append(b.DiagonalSets, SingleCoordinateSet(Coordinate{spec.Row, spec.Col}))
 	}
 	return &b
+}
+
+func (b *Board) ClearScratchGrid() {
+	for r := 0; r < b.Problem.Height; r++ {
+		for c := 0; c < b.Problem.Width; c++ {
+			b.ScratchGrid[r][c] = UNKNOWN
+		}
+	}
 }
 
 func (b *Board) Clone() *Board {
@@ -774,7 +783,7 @@ func DefFromString(input string) ProblemDef {
 
 func BoardFromString(input string) *Board {
 	def := DefFromString(input)
-	b := Board{def, NewGrid(def.Width, def.Height), make([]*Island, 0), make([]*Island, 0), make([]*CoordinateSet, 0), 0}
+	b := Board{def, NewGrid(def.Width, def.Height), NewGrid(def.Width, def.Height), make([]*Island, 0), make([]*Island, 0), make([]*CoordinateSet, 0), 0}
 	for _, spec := range b.Problem.IslandSpecs {
 		b.Grid[spec.Row][spec.Col] = CLEAR
 		b.TotalMarked++
