@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -356,6 +357,7 @@ func MakeWallIsland(r int, c int) *Island {
 type ProblemDef struct {
 	Width           int
 	Height          int
+	Size            int
 	IslandSpecs     []IslandSpec
 	TargetWallCount int
 }
@@ -669,11 +671,11 @@ func (b *Board) String() string {
 		for ci := range row {
 			s += b.CharAt(ri, ci)
 		}
-		if ri != b.Problem.Height-1 {
-			s += "\n"
-		}
+		s += "\n"
 	}
-	s += fmt.Sprintf("\nTotal marked: %d\n", b.TotalMarked)
+	if b.TotalMarked < b.Problem.Size {
+		s += fmt.Sprintf("Total marked: %d\n", b.TotalMarked)
+	}
 	return s
 }
 
@@ -757,6 +759,7 @@ func DefFromString(input string) ProblemDef {
 	}
 	prob.Width = len(lines[0])
 	prob.Height = len(lines)
+	prob.Size = prob.Width * prob.Height
 	for ri, row := range lines {
 		for ci, cell := range row {
 			count := parseIslandSpecChar(cell)
@@ -819,14 +822,14 @@ func (b *Board) HasNeighborWith(c *CoordinateSet, val Cell) bool {
 	for m := range c.Map {
 		for dx := -1; dx < 2; dx += 2 {
 			newCoord := m.Translate(dx, 0)
-			if !c.Contains(newCoord) {
-				if b.IsInBounds(newCoord) && b.Get(newCoord) == val {
+			if b.IsInBounds(newCoord) && b.Get(newCoord) == val {
+				if !c.Contains(newCoord) {
 					return true
 				}
 			}
 			newCoord = m.Translate(0, dx)
-			if !c.Contains(newCoord) {
-				if b.IsInBounds(newCoord) && b.Get(newCoord) == val {
+			if b.IsInBounds(newCoord) && b.Get(newCoord) == val {
+				if !c.Contains(newCoord) {
 					return true
 				}
 			}
@@ -942,15 +945,15 @@ func main() {
 	//fmt.Printf("Got board BC: %v\n", bc)
 	//bc.PopulateIslandPossibilities()
 	//fmt.Printf("BC: %v\n", bc)
-	/*
-		if ok, err := bc.IsSolved(); !ok {
-			fmt.Printf("Not solved %v\n", err)
-			os.Exit(0)
-		}
-	*/
-	b.InitSolve()
-	b.AutoSolve(nil, false)
-	fmt.Printf("%v\n", b.StringDebug())
+	s := Solver{b, nil, "", make(chan ProgressUpdate, b.Problem.Size*999)}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go PrintUpdates(&s, &wg)
+	s.InitSolve()
+	s.AutoSolve(false)
+	close(s.Progress)
+	wg.Wait()
+	fmt.Printf("%v\n", b.String())
 	stopNano := time.Now().UnixNano()
 	fmt.Println(Watch.Results())
 	fmt.Printf("Total duration: %.4f\n", float64(stopNano-startNano)/1000000000.0)

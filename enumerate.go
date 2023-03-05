@@ -4,11 +4,11 @@ import (
 	"fmt"
 )
 
-func (b *Board) FindPossibleIslandsRec(c chan *CoordinateSet, members *CoordinateSet, targetSize int, css *CoordinateSetSet) {
+func (s *Solver) FindPossibleIslandsRec(c chan *CoordinateSet, members *CoordinateSet, targetSize int, css *CoordinateSetSet) {
 	if css.Contains(members) {
 		return
 	}
-	potentialNew := b.NeighborsWith(members, UNKNOWN)
+	potentialNew := s.b.NeighborsWith(members, UNKNOWN)
 	for p := range potentialNew.Map {
 		membersNew := members.Copy()
 		membersNew.Add(p)
@@ -16,7 +16,7 @@ func (b *Board) FindPossibleIslandsRec(c chan *CoordinateSet, members *Coordinat
 			continue
 		}
 		for {
-			mergeThese := b.NeighborsWith(membersNew, CLEAR)
+			mergeThese := s.b.NeighborsWith(membersNew, CLEAR)
 			if mergeThese.IsEmpty() {
 				break
 			}
@@ -25,12 +25,12 @@ func (b *Board) FindPossibleIslandsRec(c chan *CoordinateSet, members *Coordinat
 		if css.Contains(membersNew) {
 			continue
 		}
-		if b.CountNumberedIslands(membersNew) == 1 {
+		if s.b.CountNumberedIslands(membersNew) == 1 {
 			if membersNew.Size() == targetSize {
 				css.Add(membersNew)
 				c <- membersNew.Copy()
 			} else if membersNew.Size() < targetSize {
-				b.FindPossibleIslandsRec(c, membersNew, targetSize, css)
+				s.FindPossibleIslandsRec(c, membersNew, targetSize, css)
 				css.Add(membersNew)
 			}
 		}
@@ -38,32 +38,32 @@ func (b *Board) FindPossibleIslandsRec(c chan *CoordinateSet, members *Coordinat
 	css.Add(members)
 }
 
-func (b *Board) FindPossibleIslands(c chan *CoordinateSet, island *Island) {
+func (s *Solver) FindPossibleIslands(c chan *CoordinateSet, island *Island) {
 	if island.CurrentSize >= island.TargetSize {
 		close(c)
 		return
 	}
 	hypoMembers := island.Members.Copy()
 	css := EmptyCoordinateSetSet()
-	b.FindPossibleIslandsRec(c, hypoMembers, island.TargetSize, css)
+	s.FindPossibleIslandsRec(c, hypoMembers, island.TargetSize, css)
 	close(c)
 }
 
-func (b *Board) PopulateIslandPossibilities() {
+func (s *Solver) PopulateIslandPossibilities() {
 	Watch.Start("Pop poss")
 	defer Watch.Stop("Pop poss")
-	for _, island := range b.Islands {
+	for _, island := range s.b.Islands {
 		if len(island.Possibilities) > 0 {
 			island.Possibilities = make([]*CoordinateSet, 0)
 		}
 		c := make(chan *CoordinateSet)
-		go b.FindPossibleIslands(c, island)
+		go s.FindPossibleIslands(c, island)
 		for p := range c {
 			island.Possibilities = append(island.Possibilities, p)
 		}
 		island.PopulateReachables()
 	}
-	b.PopulateUnrootedPossibilities()
+	s.b.PopulateUnrootedPossibilities()
 }
 
 func (b *Board) PopulateUnrootedPossibilities() {
@@ -84,8 +84,9 @@ func (b *Board) PopulateUnrootedPossibilities() {
 	}
 }
 
-func (b *Board) PopulateAllReachables() {
-	for _, island := range b.Islands {
+func (s *Solver) PopulateAllReachables() {
+	s.UpdateAction("Unreachables")
+	for _, island := range s.b.Islands {
 		island.PopulateReachables()
 	}
 }
@@ -111,21 +112,19 @@ func (b *Board) StripPossibilities(i *Island) {
 	if len(i.Possibilities) == 0 || i.IsComplete() {
 		return
 	}
-	newPossibilities := make([]*CoordinateSet, 0, len(i.Possibilities))
-	for _, p := range i.Possibilities {
+	for idx := 0; idx < len(i.Possibilities); idx++ {
+		p := i.Possibilities[idx]
 		if p == nil || i.Members == nil {
 			fmt.Printf("Error: unexpected nil pointer (i.Possibilities member: %v; i.Members: %v)\n", p, i.Members)
 		}
-		if !p.ContainsAll(i.Members) {
-			continue
+		if p.ContainsAll(i.Members) {
+			if !b.HasNeighborWith(p, CLEAR) {
+				continue
+			}
 		}
-		extras := b.NeighborsWith(p, CLEAR)
-		if extras.Size() > 0 {
-			continue
-		}
-		newPossibilities = append(newPossibilities, p)
+		RemoveFromSlice(&i.Possibilities, idx)
+		idx--
 	}
-	i.Possibilities = newPossibilities
 }
 
 func (i *Island) MustIncludeOne(cs *CoordinateSet) bool {
@@ -145,12 +144,13 @@ func (i *Island) MustIncludeOne(cs *CoordinateSet) bool {
 	return len(i.Possibilities) != oldLen
 }
 
-func (b *Board) FillIslandNecessaries() bool {
+func (s *Solver) FillIslandNecessaries() bool {
+	s.UpdateAction("Filling necessaries")
 	Watch.Start("FIN")
 	defer Watch.Stop("FIN")
 	didChange := false
 	ct := 0
-	for _, i := range b.Islands {
+	for _, i := range s.b.Islands {
 		ct++
 		if i.CurrentSize >= i.TargetSize {
 			continue
@@ -160,7 +160,7 @@ func (b *Board) FillIslandNecessaries() bool {
 		for _, p := range i.Possibilities {
 			if necessary == nil {
 				necessary = p.Copy()
-				necessaryNeighbors = b.NeighborsWith(necessary, UNKNOWN)
+				necessaryNeighbors = s.b.NeighborsWith(necessary, UNKNOWN)
 				necessary.DelAll(i.Members)
 				continue
 			}
@@ -180,10 +180,10 @@ func (b *Board) FillIslandNecessaries() bool {
 		}
 		if necessary != nil {
 			for target := range necessary.Map {
-				didChange = b.MarkClear(target.Row, target.Col) || didChange
+				didChange = s.MarkClear(target.Row, target.Col) || didChange
 			}
 			for target := range necessaryNeighbors.Map {
-				didChange = b.MarkPainted(target.Row, target.Col) || didChange
+				didChange = s.MarkPainted(target.Row, target.Col) || didChange
 			}
 		}
 	}
@@ -203,22 +203,23 @@ func (b *Board) RemoveFromPossibilities(newlyPainted Coordinate) {
 	}
 }
 
-func (b *Board) PaintUnreachables() bool {
+func (s *Solver) PaintUnreachables() bool {
+	s.UpdateAction("Painting unreachables")
 	Watch.Start("PaintUnreachables")
 	defer Watch.Stop("PaintUnreachables")
 	const UNREACHABLE = 0
 	const REACHABLE = 1
-	reachability := NewGrid(b.Problem.Width, b.Problem.Height)
-	for _, i := range b.Islands {
+	reachability := NewGrid(s.b.Problem.Width, s.b.Problem.Height)
+	for _, i := range s.b.Islands {
 		for r := range i.Reachable.Map {
 			reachability[r.Row][r.Col] = REACHABLE
 		}
 	}
 	changed := false
-	for r := 0; r < b.Problem.Height; r++ {
-		for c := 0; c < b.Problem.Width; c++ {
-			if b.Grid[r][c] == UNKNOWN && reachability[r][c] == UNREACHABLE {
-				changed = b.MarkPainted(r, c) || changed
+	for r := 0; r < s.b.Problem.Height; r++ {
+		for c := 0; c < s.b.Problem.Width; c++ {
+			if s.b.Grid[r][c] == UNKNOWN && reachability[r][c] == UNREACHABLE {
+				changed = s.MarkPainted(r, c) || changed
 			}
 		}
 	}
@@ -241,22 +242,23 @@ func (i *Island) CanReach(target Coordinate) bool {
 	return false
 }
 
-func (b *Board) FindSinglePoolPreventers() bool {
+func (s *Solver) FindSinglePoolPreventers() bool {
+	s.UpdateAction("Single pool preventers")
 	Watch.Start("Find Pool Preventers")
 	defer Watch.Stop("Find Pool Preventers")
 	didChange := false
-	for r := 0; r < b.Problem.Height-1; r++ {
+	for r := 0; r < s.b.Problem.Height-1; r++ {
 	onePossiblePool:
-		for c := 0; c < b.Problem.Width-1; c++ {
+		for c := 0; c < s.b.Problem.Width-1; c++ {
 			var savior *Island = nil
 			cs := EmptyCoordinateSet()
 			for dr := 0; dr < 2; dr++ {
 				for dc := 0; dc < 2; dc++ {
 					c := Coordinate{r + dr, c + dc}
-					if b.Get(c) == CLEAR {
+					if s.b.Get(c) == CLEAR {
 						continue onePossiblePool
 					}
-					for _, i := range b.Islands {
+					for _, i := range s.b.Islands {
 						if i.CanReach(c) {
 							if savior != nil && savior != i {
 								continue onePossiblePool
@@ -275,18 +277,19 @@ func (b *Board) FindSinglePoolPreventers() bool {
 	return didChange
 }
 
-func (b *Board) ConnectUnrootedIslands() bool {
+func (s *Solver) ConnectUnrootedIslands() bool {
+	s.UpdateAction("Connect unrooted islands")
 	Watch.Start("Connect Unrooted Islands")
 	defer Watch.Stop("Connect Unrooted Islands")
 	didChange := false
 oneUnrootedIsland:
-	for _, i := range b.Islands {
+	for _, i := range s.b.Islands {
 		if i.IsRooted() {
 			continue
 		}
 		mem := i.Members.OneMember()
 		var savior *Island = nil
-		for _, o := range b.Islands {
+		for _, o := range s.b.Islands {
 			if !o.IsRooted() {
 				continue
 			}
@@ -304,17 +307,18 @@ oneUnrootedIsland:
 	return didChange
 }
 
-func (b *Board) EliminateWallSplitters() bool {
+func (s *Solver) EliminateWallSplitters() bool {
+	s.UpdateAction("Eliminate wall splitters")
 	Watch.Start("EliminateWallSplitters")
 	defer Watch.Stop("EliminateWallSplitters")
 	changed := false
-	for _, i := range b.Islands {
+	for _, i := range s.b.Islands {
 		for idx := 0; idx < len(i.Possibilities); idx++ {
 			eliminate := false
-			if b.SetSplitsWalls(i.Possibilities[idx]) {
+			if s.b.SetSplitsWalls(i.Possibilities[idx]) {
 				eliminate = true
 			} else {
-				if b.NeighborsWith(i.Possibilities[idx], CLEAR).Size() > 0 {
+				if s.b.NeighborsWith(i.Possibilities[idx], CLEAR).Size() > 0 {
 					eliminate = true
 				}
 			}
@@ -340,18 +344,19 @@ func (i *Island) CanToleratePossibility(cs *CoordinateSet) bool {
 	return false
 }
 
-func (b *Board) EliminateIntolerables() bool {
+func (s *Solver) EliminateIntolerables() bool {
+	s.UpdateAction("Eliminating intolerable possibilities")
 	Watch.Start("Eliminate Intolerables")
 	defer Watch.Stop("Eliminate Intolerables")
 	didChange := false
-	for _, i := range b.Islands {
+	for _, i := range s.b.Islands {
 		if i.TargetSize <= i.CurrentSize {
 			continue
 		}
 		for idx := 0; idx < len(i.Possibilities); idx++ {
 			p := i.Possibilities[idx]
 			intolerable := false
-			for _, o := range b.Islands {
+			for _, o := range s.b.Islands {
 				if o.IsRooted() && o.Root == i.Root {
 					continue
 				}

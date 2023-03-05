@@ -93,7 +93,7 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 	const UNK = 0
 	const BLOCKED = 1
 	const COVERED = 2
-	unkCt := b.Problem.Width * b.Problem.Height
+	unkCt := b.Problem.Size
 	for c := range mergedIslands.Map {
 		reachability[c.Row][c.Col] = BLOCKED
 		unkCt--
