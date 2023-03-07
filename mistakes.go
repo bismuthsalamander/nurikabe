@@ -139,6 +139,8 @@ func (b *Board) SetSplitsWalls(cs *CoordinateSet) bool {
 }
 
 func (b *Board) ContainsError() error {
+	Watch.Start("Contains error")
+	defer Watch.Stop("Contains error")
 	for r := 0; r < b.Problem.Height; r++ {
 		for c := 0; c < b.Problem.Width; c++ {
 			if b.IsPool(r, c) {

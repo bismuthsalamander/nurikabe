@@ -353,111 +353,34 @@ func (s *Solver) InitSolve() {
 func (s *Solver) AutoSolve(guess bool) bool {
 	Watch.Start("AutoSolve")
 	changed := true
-	chTmp := false
 	for changed {
 		changed = false
-		chTmp = s.PaintTwoBorderedCells()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("1 painted 2bc %v\n%v\n", changed, s.b.StringDebug())
-		}
-		Check(s.b, s.solution)
-		chTmp = s.ExtendIslandsOneLiberty()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("2 extended 1lib %v\n%v\n", changed, s.b.StringDebug())
-		}
-		Check(s.b, s.solution)
-		chTmp = s.AddIslandBorders()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("3 added borders %v\n%v\n", changed, s.b.StringDebug())
-		}
-		Check(s.b, s.solution)
-
-		s.PopulateAllReachables()
-		chTmp := s.PaintUnreachables()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("4 painted URslow %v\n%v\n", changed, s.b.StringDebug())
-		}
-		Check(s.b, s.solution)
-
+		changed = changed || s.PaintTwoBorderedCells()
+		changed = changed || s.ExtendIslandsOneLiberty()
+		changed = changed || s.AddIslandBorders()
+		changed = changed || s.PaintUnreachables()
 		s.UpdateAction("Stripping possibilities")
-		s.b.StripAllPossibilities()
+		changed = changed || s.b.StripAllPossibilities()
+		changed = changed || s.ExtendWallIslandsOneLiberty()
+		changed = changed || s.ConnectUnrootedIslands()
+		changed = changed || s.FindSinglePoolPreventers()
+		changed = changed || s.FillIslandNecessaries()
+		changed = changed || s.AddIslandBorders()
+		changed = changed || s.FillElbows()
+		changed = changed || s.AddIslandBorders()
+		changed = changed || s.ExtendWallIslands()
 
-		chTmp = s.ExtendWallIslandsOneLiberty()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("5 extended WI1 %v\n%v\n", changed, s.b.StringDebug())
-		}
-		Check(s.b, s.solution)
-		chTmp = s.ConnectUnrootedIslands()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("5.5 connected unrooted %v\n%v\n", changed, s.b.StringDebug())
-		}
-		chTmp = s.FindSinglePoolPreventers()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("5.6 connected 2x1s %v\n%v\n", changed, s.b.StringDebug())
-		}
-
-		chTmp = s.FillIslandNecessaries()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("6 filled necessaries %v\n%v\n", changed, s.b.StringDebug())
-		}
-		Check(s.b, s.solution)
-		chTmp = s.AddIslandBorders()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("7 added borders %v\n%v\n", changed, s.b.StringDebug())
-		}
-		Check(s.b, s.solution)
-		chTmp = s.FillElbows()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("8 filled elbows %v\n%v\n", changed, s.b.StringDebug())
-		}
-		Check(s.b, s.solution)
-		chTmp = s.AddIslandBorders()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("9 added borders %v\n%v\n", changed, s.b.StringDebug())
-		}
-		Check(s.b, s.solution)
-		chTmp = s.ExtendWallIslands()
-		changed = changed || chTmp
-		if chTmp && false {
-			fmt.Printf("10 extended WI %v\n%v\n", changed, s.b.StringDebug())
-		}
-		Check(s.b, s.solution)
 		if s.b.TotalMarked == s.b.Problem.Size {
 			break
 		}
-		if !changed {
-			chTmp = s.EliminateIntolerables()
-			changed = changed || chTmp
-			if chTmp && false {
-				fmt.Printf("5.7 eliminated intolerables %v\n%v\n", changed, s.b.StringDebug())
-			}
+		if err := s.b.ContainsError(); err != nil {
+			break
 		}
-		if !changed {
-			chTmp = s.EliminateWallSplitters()
-			changed = changed || chTmp
-			if chTmp && false {
-				fmt.Printf("3.5 removed splitters %v\n%v\n", changed, s.b.StringDebug())
-			}
-		}
-		if !changed && !guess {
-			//fmt.Printf("Making a guess with %d filled\n%s\n", s.b.TotalMarked, s.b.StringDebug())
-
-			changed = s.MakeAGuess(true) || changed
-		}
-		if !changed && !guess {
-			//fmt.Printf("Making a guess ANYWHERE with %d filled\n%s\n", s.b.TotalMarked, s.b.StringDebug())
-			changed = s.MakeAGuess(false) || changed
+		changed = changed || s.EliminateIntolerables()
+		changed = changed || s.EliminateWallSplitters()
+		if !guess {
+			changed = changed || s.MakeAGuess(true)
+			changed = changed || s.MakeAGuess(false)
 		}
 	}
 	Watch.Stop("AutoSolve")

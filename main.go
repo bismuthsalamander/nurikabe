@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	"math"
-	"net/http"
-	_ "net/http/pprof"
+
+	//_ "net/http/pprof"
 	"os"
 	"sort"
 	"strings"
@@ -966,8 +966,8 @@ func main() {
 	stopNano := time.Now().UnixNano()
 	fmt.Println(Watch.Results())
 	fmt.Printf("Total duration: %.4f\n", float64(stopNano-startNano)/1000000000.0)
-	fmt.Println(http.ListenAndServe("localhost:6060", nil))
+	//fmt.Println(http.ListenAndServe("localhost:6060", nil))
 }
 
 // TODO: have group versions of RemoveFromPossibility and MarkPainted - only one trip through the possibility sets
-// TODO: keep a running struct of diagonally merged islands (would save over 20% of problem 3 time)
+// TODO: check only four neighbors for MergeWallIslands and MergeIslands (could save ~10% of problem 3 time)

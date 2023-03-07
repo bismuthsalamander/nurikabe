@@ -100,18 +100,23 @@ func (i *Island) PopulateReachables() {
 	}
 }
 
-func (b *Board) StripAllPossibilities() {
+func (b *Board) StripAllPossibilities() bool {
+	changed := false
 	for _, i := range b.Islands {
-		b.StripPossibilities(i)
+		if b.StripPossibilities(i) {
+			changed = true
+		}
 	}
+	return changed
 }
 
-func (b *Board) StripPossibilities(i *Island) {
+func (b *Board) StripPossibilities(i *Island) bool {
 	Watch.Start("Strip Poss")
 	defer Watch.Stop("Strip Poss")
 	if len(i.Possibilities) == 0 || i.IsComplete() {
-		return
+		return false
 	}
+	changed := false
 	for idx := 0; idx < len(i.Possibilities); idx++ {
 		p := i.Possibilities[idx]
 		if p == nil || i.Members == nil {
@@ -124,7 +129,9 @@ func (b *Board) StripPossibilities(i *Island) {
 		}
 		RemoveFromSlice(&i.Possibilities, idx)
 		idx--
+		changed = true
 	}
+	return changed
 }
 
 func (i *Island) MustIncludeOne(cs *CoordinateSet) bool {
@@ -204,6 +211,7 @@ func (b *Board) RemoveFromPossibilities(newlyPainted Coordinate) {
 }
 
 func (s *Solver) PaintUnreachables() bool {
+	s.PopulateAllReachables()
 	s.UpdateAction("Painting unreachables")
 	Watch.Start("PaintUnreachables")
 	defer Watch.Stop("PaintUnreachables")
@@ -333,13 +341,34 @@ func (s *Solver) EliminateWallSplitters() bool {
 }
 
 func (i *Island) CanToleratePossibility(cs *CoordinateSet) bool {
+onePossibility:
 	for _, p := range i.Possibilities {
-		if !i.IsRooted() && p.Equals(cs) {
+		ctYes := 0
+		ctNo := 0
+		for c := range p.Map {
+			if cs.Contains(c) {
+				ctYes += 1
+			} else {
+				ctNo += 1
+			}
+			if ctYes > 0 && ctNo > 0 {
+				continue onePossibility
+			}
+		}
+		if ctYes == 0 {
 			return true
 		}
-		if !p.ContainsAtLeastOne(cs) {
+		if !i.IsRooted() && ctYes == p.Size() && p.Size() == cs.Size() {
 			return true
 		}
+		/*
+			if !i.IsRooted() && p.Equals(cs) {
+				return true
+			}
+			if !p.ContainsAtLeastOne(cs) {
+				return true
+			}
+		*/
 	}
 	return false
 }
