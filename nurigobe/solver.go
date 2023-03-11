@@ -1,4 +1,4 @@
-package main
+package nurigobe
 
 import (
 	"fmt"
@@ -17,6 +17,12 @@ type Solver struct {
 	Action   string
 	Progress chan ProgressUpdate
 }
+
+func NewSolver(b *Board) *Solver {
+    s := Solver{b, nil, "", make(chan ProgressUpdate, b.Problem.Size*2)}
+    return &s
+}
+
 
 func (s *Solver) UpdateAction(a string) {
 	s.Action = a

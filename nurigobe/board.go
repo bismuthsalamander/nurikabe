@@ -1,4 +1,4 @@
-package main
+package nurigobe
 
 import (
 	"fmt"
@@ -536,9 +536,7 @@ func (b *Board) MergeIslands() {
 			for j := i + 1; j < len(b.Islands); j++ {
 				if b.Islands[i].BordersIsland(b.Islands[j]) {
 					changed = true
-					//fmt.Printf("%v is absorbing %v\n", b.Islands[i], b.Islands[j])
 					b.Islands[i].Absorb(b.Islands[j])
-					//fmt.Printf("%v just absorbed!\n", b.Islands[i])
 					b.Islands[j] = b.Islands[len(b.Islands)-1]
 					b.Islands = b.Islands[:len(b.Islands)-1]
 					j--

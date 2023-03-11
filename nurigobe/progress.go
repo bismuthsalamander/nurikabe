@@ -1,4 +1,4 @@
-package main
+package nurigobe
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func PrintUpdates(s *Solver, wg *sync.WaitGroup) {
+func (s *Solver) PrintUpdates(wg *sync.WaitGroup) {
 	defer wg.Done()
 	if s.Progress == nil {
 		return

@@ -1,4 +1,4 @@
-package main
+package nurigobe
 
 import (
 	"fmt"
@@ -36,7 +36,7 @@ func DefFromString(input string) ProblemDef {
 	prob := ProblemDef{}
 	lines := make([]string, 0)
 	for _, txt := range strings.Split(input, "\n") {
-		txt = strings.TrimSpace(txt)
+		txt = strings.Trim(txt, "\r\n")
 		if len(txt) > 0 {
 			lines = append(lines, txt)
 		}
@@ -67,7 +67,7 @@ func BoardFromString(input string) *Board {
 	}
 	lines := make([]string, 0)
 	for _, txt := range strings.Split(input, "\n") {
-		txt = strings.TrimSpace(txt)
+		txt = strings.Trim(txt, "\r\n")
 		if len(txt) > 0 {
 			lines = append(lines, txt)
 		}
