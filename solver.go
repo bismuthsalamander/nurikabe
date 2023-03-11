@@ -27,13 +27,11 @@ func (s *Solver) SendProgress() {
 	if s.Progress == nil {
 		return
 	}
-	//fmt.Println("Sending progress")
 	s.Progress <- ProgressUpdate{
 		s.Action,
 		s.b.TotalMarked,
 		s.b.Problem.Size,
 	}
-	//fmt.Println("Done sending progress")
 }
 
 func (s *Solver) MarkPainted(r int, c int) bool {
@@ -115,7 +113,7 @@ func (s *Solver) ExtendWallIslandsOneLiberty() bool {
 				break
 			}
 			if island.CurrentSize == s.b.Problem.TargetWallCount {
-				continue
+				return didChange
 			}
 			lib := s.b.Liberties(island)
 			if lib.Size() == 1 {
@@ -214,7 +212,7 @@ func (s *Solver) ExtendWallIslands() bool {
 	didChange := false
 	for _, wi := range s.b.WallIslands {
 		if wi.CurrentSize == s.b.Problem.TargetWallCount {
-			continue
+			return didChange
 		}
 		necessaryMembers := s.WallDfs(wi.Members)
 		for target := range necessaryMembers.Map {
@@ -234,7 +232,6 @@ func (s *Solver) FillElbows() bool {
 		for c := 0; c < s.b.Problem.Width-1; c++ {
 			painted := 0
 			clear := 0
-			unknown := 0
 			target := Coordinate{}
 			for dr := 0; dr < 2; dr++ {
 				for dc := 0; dc < 2; dc++ {
@@ -244,7 +241,6 @@ func (s *Solver) FillElbows() bool {
 					case CLEAR:
 						clear++
 					case UNKNOWN:
-						unknown++
 						target = Coordinate{r + dr, c + dc}
 					}
 				}
@@ -292,8 +288,6 @@ func Check(b *Board, soln *Board) {
 			}
 			abort = true
 
-		} else {
-			//fmt.Printf("Island %v is okay!! %v is in there!\n", myI, si.Members)
 		}
 	}
 	if abort {
@@ -301,14 +295,14 @@ func Check(b *Board, soln *Board) {
 	}
 }
 
-func (s *Solver) FalsifyGuess(r int, c int, cell Cell) error {
+func (s *Solver) FalsifyGuess(r int, c int, cell Cell, skipExpensive bool) error {
 	hypo := Solver{s.b.Clone(), nil, s.Action, nil}
 	hypo.b.Mark(r, c, cell)
-	hypo.AutoSolve(true)
+	hypo.AutoSolve(false, skipExpensive)
 	return hypo.b.ContainsError()
 }
 
-func (s *Solver) MakeAGuess(neighborsOnly bool) bool {
+func (s *Solver) MakeAGuess(neighborsOnly bool, skipExpensive bool) bool {
 	if neighborsOnly {
 		s.UpdateAction("Make a guess (island neighbors)")
 	} else {
@@ -322,23 +316,18 @@ func (s *Solver) MakeAGuess(neighborsOnly bool) bool {
 			if neighborsOnly && !s.b.HasNeighborWith(SingleCoordinateSet(Coordinate{r, c}), CLEAR) {
 				continue
 			}
-			e := s.FalsifyGuess(r, c, CLEAR)
+			e := s.FalsifyGuess(r, c, CLEAR, skipExpensive)
 			if e != nil {
 				s.MarkPainted(r, c)
-				//fmt.Printf("Successfully guessed! {r%d, c%d} was painted! error %v\n", r, c, e)
-				//fmt.Printf("Stopwatch:\n%s", Watch.Results())
 				return true
 			}
-			e = s.FalsifyGuess(r, c, PAINTED)
+			e = s.FalsifyGuess(r, c, PAINTED, skipExpensive)
 			if e != nil {
-				//fmt.Printf("Successfully guessed! {r%d, c%d} was clear! error %v\n", r, c, e)
 				s.MarkClear(r, c)
-				//fmt.Printf("Stopwatch:\n%s", Watch.Results())
 				return true
 			}
 		}
 	}
-	//fmt.Printf("Unsuccessfully guessed.\n")
 	return false
 }
 
@@ -350,7 +339,7 @@ func (s *Solver) InitSolve() {
 	s.PopulateIslandPossibilities()
 }
 
-func (s *Solver) AutoSolve(guess bool) bool {
+func (s *Solver) AutoSolve(makeGuesses bool, skipExpensive bool) bool {
 	Watch.Start("AutoSolve")
 	changed := true
 	for changed {
@@ -376,14 +365,17 @@ func (s *Solver) AutoSolve(guess bool) bool {
 		if err := s.b.ContainsError(); err != nil {
 			break
 		}
-		changed = changed || s.EliminateIntolerables()
-		changed = changed || s.EliminateWallSplitters()
-		if !guess {
-			changed = changed || s.MakeAGuess(true)
-			changed = changed || s.MakeAGuess(false)
+		if !skipExpensive {
+			changed = changed || s.EliminateIntolerables()
+			changed = changed || s.EliminateWallSplitters()
+		}
+		if makeGuesses {
+			changed = changed || s.MakeAGuess(true, true)
+			changed = changed || s.MakeAGuess(false, true)
+			changed = changed || s.MakeAGuess(true, skipExpensive || false)
+			changed = changed || s.MakeAGuess(false, skipExpensive || false)
 		}
 	}
 	Watch.Stop("AutoSolve")
-	//fmt.Printf("Stopwatch:\n%s", Watch.Results())
 	return true
 }
