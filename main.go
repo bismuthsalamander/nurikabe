@@ -1,6 +1,7 @@
 package main
 
 import (
+    "os"
 	"fmt"
 	"sync"
 	"time"
@@ -8,16 +9,20 @@ import (
 )
 
 func main() {
-	b := nurigobe.GetBoardFromFile("p3.txt")
+    if len(os.Args) != 2 {
+        fmt.Printf("usage: %s [problem.txt]\n", os.Args[0])
+        return
+    }
+
+    fn := os.Args[1]
+	b, err := nurigobe.GetBoardFromFile(fn)
+    if err != nil {
+        fmt.Printf("error reading problem file %s: %v\n", fn, err)
+        return
+    }
 
 	startNano := time.Now().UnixNano()
-
-	//bc := GetBoardFromFile("problem3-solved.txt")
-	//fmt.Printf("Got board BC: %v\n", bc)
-	//bc.PopulateIslandPossibilities()
-	//fmt.Printf("BC: %v\n", bc)
 	s := nurigobe.NewSolver(b)
-    //{b, nil, "", make(chan ProgressUpdate, b.Problem.Size*2)}
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go s.PrintUpdates(&wg)

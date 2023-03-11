@@ -32,7 +32,7 @@ func parseIslandSpecChar(c rune) int {
 	return -1
 }
 
-func DefFromString(input string) ProblemDef {
+func DefFromString(input string) (ProblemDef, error) {
 	prob := ProblemDef{}
 	lines := make([]string, 0)
 	for _, txt := range strings.Split(input, "\n") {
@@ -45,6 +45,9 @@ func DefFromString(input string) ProblemDef {
 	prob.Height = len(lines)
 	prob.Size = prob.Width * prob.Height
 	for ri, row := range lines {
+        if len(row) != prob.Width {
+            return ProblemDef{}, fmt.Errorf("problem definition row %d has unexpected length %d", ri+1, len(row))
+        }
 		for ci, cell := range row {
 			count := parseIslandSpecChar(cell)
 			if count > -1 {
@@ -53,11 +56,14 @@ func DefFromString(input string) ProblemDef {
 			}
 		}
 	}
-	return prob
+	return prob, nil
 }
 
-func BoardFromString(input string) *Board {
-	def := DefFromString(input)
+func BoardFromString(input string) (*Board, error) {
+	def, err := DefFromString(input)
+    if err != nil {
+        return nil, err
+    }
 	b := Board{def, NewGrid(def.Width, def.Height), NewGrid(def.Width, def.Height), make([]*Island, 0), make([]*Island, 0), make([]*CoordinateSet, 0), 0}
 	for _, spec := range b.Problem.IslandSpecs {
 		b.Grid[spec.Row][spec.Col] = CLEAR
@@ -81,14 +87,13 @@ func BoardFromString(input string) *Board {
 			}
 		}
 	}
-	return &b
+	return &b, nil
 }
 
-func GetBoardFromFile(f string) *Board {
+func GetBoardFromFile(f string) (*Board, error) {
 	data, err := os.ReadFile(f)
 	if err != nil {
-		fmt.Printf("error: %v\n", err)
-		return nil
+		return nil, err
 	}
 	return BoardFromString(string(data))
 }
